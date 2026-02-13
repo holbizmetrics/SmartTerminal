@@ -1,0 +1,32 @@
+namespace SmartTerminal.Services;
+
+/// <summary>
+/// Manages a pseudo-terminal (PTY) session.
+/// Spawns a shell, reads output, writes input.
+/// </summary>
+public interface IPtyService
+{
+    /// <summary>Start a shell session. Returns false if PTY allocation fails.</summary>
+    Task<bool> StartAsync(string shell = "/bin/sh", int rows = 24, int cols = 80);
+
+    /// <summary>Write raw bytes to the PTY (keyboard input → shell stdin).</summary>
+    Task WriteAsync(string data);
+
+    /// <summary>Write raw bytes to the PTY.</summary>
+    Task WriteAsync(byte[] data);
+
+    /// <summary>Resize the PTY window.</summary>
+    void Resize(int rows, int cols);
+
+    /// <summary>Kill the shell process and close the PTY.</summary>
+    void Stop();
+
+    /// <summary>True if the shell process is running.</summary>
+    bool IsRunning { get; }
+
+    /// <summary>Fired when the shell produces output (stdout + stderr merged, as real terminals do).</summary>
+    event Action<string>? OutputReceived;
+
+    /// <summary>Fired when the shell process exits.</summary>
+    event Action<int>? ProcessExited;
+}

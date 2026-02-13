@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-android</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>SmartTerminal</RootNamespace>
+    <UseMaui>true</UseMaui>
+    <SingleProject>true</SingleProject>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <!-- App Identifiers -->
+    <ApplicationTitle>Smart Terminal</ApplicationTitle>
+    <ApplicationId>com.holger.smartterminal</ApplicationId>
+    <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+    <ApplicationVersion>1</ApplicationVersion>
+
+    <!-- Android Settings -->
+    <SupportedOSPlatformVersion>26</SupportedOSPlatformVersion>
+    <AndroidEnableMultiDex>true</AndroidEnableMultiDex>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Raw assets: xterm.js terminal page -->
+    <MauiAsset Include="wwwroot\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <!-- Native PTY library -->
+  <ItemGroup>
+    <AndroidNativeLibrary Include="Native\libs\arm64-v8a\libpty.so" Abi="arm64-v8a" />
+    <AndroidNativeLibrary Include="Native\libs\armeabi-v7a\libpty.so" Abi="armeabi-v7a" />
+    <AndroidNativeLibrary Include="Native\libs\x86_64\libpty.so" Abi="x86_64" />
+  </ItemGroup>
+
+  <ItemGroup>
+	<PackageReference Include="Microsoft.Maui.Controls" Version="10.0.20" />
+  </ItemGroup>
+</Project>

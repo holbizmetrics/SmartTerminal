@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Smart Terminal</title>
+
+    <!-- xterm.js from CDN -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-webgl@0.18.0/lib/addon-webgl.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/lib/addon-web-links.min.js"></script>
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #1a1a2e;
+        }
+
+        #terminal-container {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Override xterm defaults for mobile readability */
+        .xterm {
+            padding: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div id="terminal-container"></div>
+
+    <script>
+        // ============================================================
+        // Smart Terminal — xterm.js bridge
+        //
+        // Communication with C# via:
+        //   C# → JS:  webView.EvaluateJavaScriptAsync("termWrite('...')")
+        //   JS → C#:  window.location = "smartterm://input?data=..."
+        //              (intercepted by WebView navigation handler)
+        // ============================================================
+
+        let term = null;
+        let fitAddon = null;
+
+        function initTerminal() {
+            term = new Terminal({
+                cursorBlink: true,
+                cursorStyle: 'block',
+                fontSize: 14,
+                fontFamily: "'CascadiaMono', 'Fira Code', 'Cascadia Code', 'Source Code Pro', monospace",
+                theme: {
+                    background: '#1a1a2e',
+                    foreground: '#e0e0e0',
+                    cursor: '#e94560',
+                    cursorAccent: '#1a1a2e',
+                    selectionBackground: 'rgba(233, 69, 96, 0.3)',
+                    black: '#1a1a2e',
+                    red: '#e94560',
+                    green: '#0f3460',
+                    yellow: '#e9c46a',
+                    blue: '#16213e',
+                    magenta: '#c77dba',
+                    cyan: '#53b3cb',
+                    white: '#e0e0e0',
+                    brightBlack: '#4a4a6a',
+                    brightRed: '#ff6b81',
+                    brightGreen: '#7bed9f',
+                    brightYellow: '#ffd93d',
+                    brightBlue: '#70a1ff',
+                    brightMagenta: '#dda0dd',
+                    brightCyan: '#7ec8e3',
+                    brightWhite: '#ffffff'
+                },
+                allowProposedApi: true,
+                scrollback: 10000,
+                convertEol: false,
+                allowTransparency: false
+            });
+
+            // Addons
+            fitAddon = new FitAddon.FitAddon();
+            term.loadAddon(fitAddon);
+
+            try {
+                const webglAddon = new WebglAddon.WebglAddon();
+                term.loadAddon(webglAddon);
+                webglAddon.onContextLoss(() => {
+                    webglAddon.dispose();
+                });
+            } catch (e) {
+                console.warn('WebGL addon failed, falling back to canvas:', e);
+            }
+
+            const webLinksAddon = new WebLinksAddon.WebLinksAddon();
+            term.loadAddon(webLinksAddon);
+
+            // Mount
+            const container = document.getElementById('terminal-container');
+            term.open(container);
+            fitAddon.fit();
+
+            // When user types → send to C#
+            term.onData(function(data) {
+                sendToCSharp('input', data);
+            });
+
+            // When user resizes (or keyboard shows/hides)
+            term.onResize(function(size) {
+                sendToCSharp('resize', size.cols + ',' + size.rows);
+            });
+
+            // Handle window resize
+            window.addEventListener('resize', function() {
+                if (fitAddon) {
+                    fitAddon.fit();
+                }
+            });
+
+            // Notify C# we're ready
+            sendToCSharp('ready', term.cols + ',' + term.rows);
+        }
+
+        // --- C# → JS API ---
+
+        /**
+         * Write shell output to the terminal.
+         * Called from C#: webView.EvaluateJavaScriptAsync("termWrite('...')")
+         */
+        function termWrite(base64Data) {
+            if (!term) return;
+            try {
+                const text = atob(base64Data);
+                term.write(text);
+            } catch (e) {
+                console.error('termWrite error:', e);
+            }
+        }
+
+        /**
+         * Resize the terminal grid.
+         */
+        function termResize(cols, rows) {
+            if (!term) return;
+            term.resize(cols, rows);
+        }
+
+        /**
+         * Fit terminal to container (call after keyboard show/hide).
+         */
+        function termFit() {
+            if (fitAddon) {
+                fitAddon.fit();
+            }
+        }
+
+        /**
+         * Clear the terminal screen.
+         */
+        function termClear() {
+            if (term) {
+                term.clear();
+            }
+        }
+
+        /**
+         * Focus the terminal (triggers soft keyboard on mobile).
+         */
+        function termFocus() {
+            if (term) {
+                term.focus();
+            }
+        }
+
+        // --- JS → C# communication ---
+
+        function sendToCSharp(type, data) {
+            // Encode data as base64 to handle special characters
+            const encoded = btoa(unescape(encodeURIComponent(data)));
+            window.location = 'smartterm://' + type + '?data=' + encoded;
+        }
+
+        // --- Init ---
+        document.addEventListener('DOMContentLoaded', initTerminal);
+    </script>
+</body>
+</html>
