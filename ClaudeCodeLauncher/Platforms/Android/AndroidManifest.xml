@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    
+    <!-- Package queries for Termux -->
+    <queries>
+        <package android:name="com.termux" />
+        <package android:name="com.termux.api" />
+    </queries>
+
+    <!-- Permissions -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    
+    <!-- Termux RUN_COMMAND permission -->
+    <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
+
+    <application 
+        android:allowBackup="true" 
+        android:icon="@mipmap/appicon" 
+        android:roundIcon="@mipmap/appicon_round" 
+        android:supportsRtl="true"
+        android:label="Claude Code Launcher"
+        android:theme="@style/Maui.SplashTheme">
+    </application>
+
+</manifest>

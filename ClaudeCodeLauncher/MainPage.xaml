@@ -1,0 +1,171 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage
+	x:Class="ClaudeCodeLauncher.MainPage"
+	xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+	xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+	xmlns:views="clr-namespace:ClaudeCodeLauncher.Views"
+	Title="Claude Code Launcher"
+	BackgroundColor="#1e1e1e">
+
+	<Grid Padding="16" RowDefinitions="Auto,*,Auto,Auto">
+
+		<!--  Header  -->
+		<VerticalStackLayout
+			Grid.Row="0"
+			Margin="0,0,0,16"
+			Spacing="8">
+			<Label
+				FontAttributes="Bold"
+				FontSize="24"
+				HorizontalOptions="Center"
+				Text="Claude Code Launcher"
+				TextColor="White" />
+
+			<HorizontalStackLayout HorizontalOptions="Center" Spacing="8">
+				<Label
+					x:Name="StatusLabel"
+					FontSize="14"
+					Text="Ready"
+					TextColor="#888" />
+				<Frame
+					x:Name="StatusIndicator"
+					Padding="0"
+					BackgroundColor="Green"
+					CornerRadius="6"
+					HasShadow="False"
+					HeightRequest="12"
+					WidthRequest="12" />
+			</HorizontalStackLayout>
+		</VerticalStackLayout>
+
+		<!--  Main Content  -->
+		<Frame
+			Grid.Row="1"
+			Padding="16"
+			BackgroundColor="#2d2d2d"
+			CornerRadius="12"
+			HasShadow="False">
+			<VerticalStackLayout Spacing="16" VerticalOptions="Center">
+
+				<!--  Quick Launch Button  -->
+				<Button
+					x:Name="LaunchButton"
+					BackgroundColor="#4CAF50"
+					Clicked="OnLaunchClicked"
+					CornerRadius="12"
+					FontSize="18"
+					HeightRequest="60"
+					Text="🚀 Launch Claude Code"
+					TextColor="White" />
+
+				<!--  Working Directory  -->
+				<Frame
+					Padding="12"
+					BackgroundColor="#3d3d3d"
+					CornerRadius="8"
+					HasShadow="False">
+					<VerticalStackLayout Spacing="8">
+						<Label
+							FontSize="12"
+							Text="Working Directory"
+							TextColor="#888" />
+						<Entry
+							x:Name="WorkingDirectoryEntry"
+							BackgroundColor="Transparent"
+							Placeholder="/storage/emulated/0/Projects"
+							PlaceholderColor="#666"
+							TextColor="White" />
+					</VerticalStackLayout>
+				</Frame>
+
+				<!--  Command Input with SmartInput  -->
+				<Frame
+					Padding="12"
+					BackgroundColor="#3d3d3d"
+					CornerRadius="8"
+					HasShadow="False">
+					<VerticalStackLayout Spacing="8">
+						<Label
+							FontSize="12"
+							Text="Command Input (SwiftKey compatible!)"
+							TextColor="#888" />
+						<views:SmartInput
+							x:Name="CommandInput"
+							HeightRequest="50"
+							Placeholder="Type command..."
+							SpecialKeyPressed="OnSpecialKeyPressed"
+							TextCommitted="OnCommandTextCommitted" />
+						<Button
+							BackgroundColor="#2196F3"
+							Clicked="OnSendCommandClicked"
+							CornerRadius="8"
+							Text="Send to Termux"
+							TextColor="White" />
+					</VerticalStackLayout>
+				</Frame>
+
+			</VerticalStackLayout>
+		</Frame>
+
+		<!--  Quick Actions  -->
+		<Grid
+			Grid.Row="2"
+			Margin="0,16,0,0"
+			ColumnDefinitions="*,*,*,*"
+			ColumnSpacing="8">
+			<Button
+				Grid.Column="0"
+				BackgroundColor="#f44336"
+				Clicked="OnCtrlCClicked"
+				CornerRadius="8"
+				FontSize="12"
+				Text="Ctrl+C"
+				TextColor="White" />
+			<Button
+				Grid.Column="1"
+				BackgroundColor="#ff9800"
+				Clicked="OnCtrlDClicked"
+				CornerRadius="8"
+				FontSize="12"
+				Text="Ctrl+D"
+				TextColor="White" />
+			<Button
+				Grid.Column="2"
+				BackgroundColor="#9c27b0"
+				Clicked="OnTabClicked"
+				CornerRadius="8"
+				FontSize="12"
+				Text="Tab"
+				TextColor="White" />
+			<Button
+				Grid.Column="3"
+				BackgroundColor="#2196F3"
+				Clicked="OnEnterClicked"
+				CornerRadius="8"
+				FontSize="12"
+				Text="↵ Enter"
+				TextColor="White" />
+		</Grid>
+
+		<!--  Bottom Bar  -->
+		<Grid
+			Grid.Row="3"
+			Margin="0,16,0,0"
+			ColumnDefinitions="*,Auto">
+			<Button
+				BackgroundColor="Transparent"
+				Clicked="OnSettingsClicked"
+				Text="⚙️ Settings"
+				TextColor="#888" />
+			<Button
+				Grid.Column="1"
+				BackgroundColor="#3d3d3d"
+				Clicked="OnOpenTermuxClicked"
+				CornerRadius="8"
+				Text="Open Termux"
+				TextColor="White" />
+		</Grid>
+
+	</Grid>
+
+</ContentPage>

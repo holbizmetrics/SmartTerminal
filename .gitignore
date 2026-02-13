@@ -1,0 +1,32 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+*.nupkg
+project.lock.json
+
+# MAUI
+*.apk
+*.aab
+*.ipa
+
+# Native build artifacts
+Native/libs/**/*.so
+
+# Android
+*.keystore
+local.properties
+
+# IDE
+.idea/
+*.swp
+*~
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db

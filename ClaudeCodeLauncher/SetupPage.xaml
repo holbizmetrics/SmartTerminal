@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="ClaudeCodeLauncher.SetupPage"
+             Title="Setup"
+             BackgroundColor="#1e1e1e">
+
+    <ScrollView>
+        <VerticalStackLayout Padding="24" Spacing="20">
+            
+            <!-- Header -->
+            <VerticalStackLayout Spacing="8" Margin="0,20,0,20">
+                <Label Text="🚀 Claude Code Setup" 
+                       FontSize="28" 
+                       FontAttributes="Bold" 
+                       TextColor="White"
+                       HorizontalOptions="Center"/>
+                <Label Text="Let's get everything configured" 
+                       FontSize="16" 
+                       TextColor="#888"
+                       HorizontalOptions="Center"/>
+            </VerticalStackLayout>
+
+            <!-- Requirements Check -->
+            <Frame BackgroundColor="#2d2d2d" CornerRadius="12" Padding="16" HasShadow="False">
+                <VerticalStackLayout Spacing="12">
+                    <Label Text="Requirements" FontSize="18" FontAttributes="Bold" TextColor="White"/>
+                    
+                    <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="12">
+                        <Label Grid.Row="0" Grid.Column="0" Text="📱" FontSize="20"/>
+                        <Label Grid.Row="0" Grid.Column="1" Text="Termux installed" TextColor="White"/>
+                        <Label Grid.Row="0" Grid.Column="2" x:Name="TermuxCheck" Text="⏳" FontSize="20"/>
+                        
+                        <Label Grid.Row="1" Grid.Column="0" Text="📦" FontSize="20"/>
+                        <Label Grid.Row="1" Grid.Column="1" Text="Node.js LTS" TextColor="White"/>
+                        <Label Grid.Row="1" Grid.Column="2" x:Name="NodeCheck" Text="⏳" FontSize="20"/>
+                        
+                        <Label Grid.Row="2" Grid.Column="0" Text="🔧" FontSize="20"/>
+                        <Label Grid.Row="2" Grid.Column="1" Text="Git" TextColor="White"/>
+                        <Label Grid.Row="2" Grid.Column="2" x:Name="GitCheck" Text="⏳" FontSize="20"/>
+                        
+                        <Label Grid.Row="3" Grid.Column="0" Text="🤖" FontSize="20"/>
+                        <Label Grid.Row="3" Grid.Column="1" Text="Claude Code CLI" TextColor="White"/>
+                        <Label Grid.Row="3" Grid.Column="2" x:Name="ClaudeCheck" Text="⏳" FontSize="20"/>
+                    </Grid>
+                </VerticalStackLayout>
+            </Frame>
+
+            <!-- Android Warning -->
+            <Frame BackgroundColor="#ff980020" BorderColor="#ff9800" CornerRadius="8" Padding="12" HasShadow="False">
+                <VerticalStackLayout Spacing="8">
+                    <Label Text="⚠️ Android 12+ Users" FontAttributes="Bold" TextColor="#ff9800"/>
+                    <Label Text="Disable 'Phantom Process Killer' in Developer Options to prevent background process termination." 
+                           TextColor="#ffcc80" FontSize="13"/>
+                    <Button Text="Learn More" BackgroundColor="Transparent" TextColor="#ff9800" 
+                            Clicked="OnLearnMoreClicked"/>
+                </VerticalStackLayout>
+            </Frame>
+
+            <!-- Setup Progress -->
+            <Frame x:Name="ProgressFrame" BackgroundColor="#2d2d2d" CornerRadius="12" Padding="16" HasShadow="False" IsVisible="False">
+                <VerticalStackLayout Spacing="12">
+                    <Label Text="Setup Progress" FontSize="18" FontAttributes="Bold" TextColor="White"/>
+                    <ProgressBar x:Name="SetupProgress" Progress="0" ProgressColor="#4CAF50"/>
+                    <Label x:Name="ProgressLabel" Text="Preparing..." TextColor="#888"/>
+                    <Editor x:Name="LogOutput" 
+                            HeightRequest="150" 
+                            IsReadOnly="True"
+                            BackgroundColor="#1e1e1e"
+                            TextColor="#888"
+                            FontFamily="Consolas"/>
+                </VerticalStackLayout>
+            </Frame>
+
+            <!-- Action Buttons -->
+            <VerticalStackLayout Spacing="12">
+                <Button x:Name="InstallButton"
+                        Text="🔧 Run Automatic Setup"
+                        FontSize="16"
+                        HeightRequest="55"
+                        BackgroundColor="#4CAF50"
+                        TextColor="White"
+                        CornerRadius="12"
+                        Clicked="OnInstallClicked"/>
+                
+                <Button x:Name="ManualButton"
+                        Text="📋 Show Manual Instructions"
+                        FontSize="14"
+                        BackgroundColor="#3d3d3d"
+                        TextColor="White"
+                        CornerRadius="8"
+                        Clicked="OnManualClicked"/>
+                
+                <Button x:Name="SkipButton"
+                        Text="Skip (I've already set up Termux)"
+                        FontSize="14"
+                        BackgroundColor="Transparent"
+                        TextColor="#888"
+                        Clicked="OnSkipClicked"/>
+            </VerticalStackLayout>
+
+        </VerticalStackLayout>
+    </ScrollView>
+
+</ContentPage>
