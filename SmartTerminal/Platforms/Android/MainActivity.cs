@@ -26,8 +26,10 @@ public class MainActivity : MauiAppCompatActivity
         // Fullscreen immersive — maximize terminal real estate
         if (Window != null)
         {
+#pragma warning disable CA1422 // Deprecated on Android 35+, but still needed for older versions
             Window.SetStatusBarColor(Android.Graphics.Color.ParseColor("#1a1a2e"));
             Window.SetNavigationBarColor(Android.Graphics.Color.ParseColor("#1a1a2e"));
+#pragma warning restore CA1422
 
             // Keep screen on while terminal is active
             Window.AddFlags(WindowManagerFlags.KeepScreenOn);

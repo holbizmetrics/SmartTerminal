@@ -373,10 +373,13 @@ internal class SmartInputEditText : EditText
         FocusableInTouchMode = true;
     }
 
-    public override IInputConnection OnCreateInputConnection(EditorInfo outAttrs)
+    public override IInputConnection OnCreateInputConnection(EditorInfo? outAttrs)
     {
-        outAttrs.InputType = InputTypes.ClassText | InputTypes.TextFlagAutoCorrect;
-		outAttrs.ImeOptions = (ImeFlags)((int)ImeAction.None | 0x2000000);
+        if (outAttrs != null)
+        {
+            outAttrs.InputType = InputTypes.ClassText | InputTypes.TextFlagAutoCorrect;
+            outAttrs.ImeOptions = (ImeFlags)((int)ImeAction.None | 0x2000000);
+        }
         return new SmartInputConnection(this, true, _onInput);
     }
 }

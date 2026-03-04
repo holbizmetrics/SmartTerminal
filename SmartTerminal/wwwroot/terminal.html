@@ -676,8 +676,46 @@
             window.location = 'smartterm://' + type + '?data=' + encoded;
         }
 
+        // --- Error display for diagnostics ---
+
+        function showError(msg) {
+            var el = document.getElementById('error-display');
+            if (!el) {
+                el = document.createElement('pre');
+                el.id = 'error-display';
+                el.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;' +
+                    'color:#e94560;background:#1a1a2e;padding:16px;font-size:13px;' +
+                    'font-family:monospace;white-space:pre-wrap;overflow:auto;';
+                document.body.appendChild(el);
+            }
+            el.textContent += msg + '\n';
+        }
+
+        // Catch unhandled errors globally
+        window.onerror = function(msg, url, line, col, error) {
+            showError('JS Error: ' + msg + '\n  at ' + url + ':' + line + ':' + col);
+        };
+
         // --- Init ---
-        document.addEventListener('DOMContentLoaded', initTerminal);
+        document.addEventListener('DOMContentLoaded', function() {
+            // Verify dependencies loaded
+            if (typeof Terminal === 'undefined') {
+                showError('FATAL: xterm.js (Terminal) not loaded.\n' +
+                    'Check that vendor/xterm/xterm.min.js is in android_asset.');
+                return;
+            }
+            if (typeof FitAddon === 'undefined') {
+                showError('FATAL: FitAddon not loaded.\n' +
+                    'Check that vendor/xterm/addon-fit.min.js is in android_asset.');
+                return;
+            }
+
+            try {
+                initTerminal();
+            } catch (e) {
+                showError('initTerminal failed: ' + e.message + '\n' + (e.stack || ''));
+            }
+        });
     </script>
 </body>
 </html>

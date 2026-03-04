@@ -48,10 +48,20 @@ public class TerminalPage : ContentPage
 
         if (!started)
         {
-            _terminal.WriteOutput?.Invoke(
-                "\x1b[31mFailed to start shell.\x1b[0m\r\n" +
-                $"Tried: {shell}\r\n" +
-                "Make sure a shell is available on this device.\r\n");
+            if (!_pty.NativeAvailable)
+            {
+                _terminal.WriteOutput?.Invoke(
+                    "\x1b[31mNative PTY library (libpty.so) not found.\x1b[0m\r\n" +
+                    "The app was built without the native library.\r\n" +
+                    "Run build_native.sh with Android NDK to build it.\r\n");
+            }
+            else
+            {
+                _terminal.WriteOutput?.Invoke(
+                    "\x1b[31mFailed to start shell.\x1b[0m\r\n" +
+                    $"Tried: {shell}\r\n" +
+                    "Make sure a shell is available on this device.\r\n");
+            }
         }
     }
 

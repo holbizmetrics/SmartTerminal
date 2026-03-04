@@ -30,8 +30,9 @@
     <MauiAsset Include="wwwroot\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
-  <!-- Native PTY library -->
-  <ItemGroup>
+  <!-- Native PTY library — built by Native/build_native.sh via Android NDK -->
+  <!-- To build locally, run build_native.sh with ANDROID_NDK_HOME set -->
+  <ItemGroup Condition="Exists('Native\libs\arm64-v8a\libpty.so')">
     <AndroidNativeLibrary Include="Native\libs\arm64-v8a\libpty.so" Abi="arm64-v8a" />
     <AndroidNativeLibrary Include="Native\libs\armeabi-v7a\libpty.so" Abi="armeabi-v7a" />
     <AndroidNativeLibrary Include="Native\libs\x86_64\libpty.so" Abi="x86_64" />

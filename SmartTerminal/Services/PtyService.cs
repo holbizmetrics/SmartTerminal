@@ -42,6 +42,10 @@ public class PtyService : IPtyService, IDisposable
     private Task? _readTask;
     private Task? _waitTask;
     private bool _disposed;
+    private bool _nativeAvailable = true;
+
+    /// <summary>Whether the native PTY library was found. False after DllNotFoundException.</summary>
+    public bool NativeAvailable => _nativeAvailable;
 
     public bool IsRunning => _pid > 0 && _masterFd >= 0;
 
@@ -53,7 +57,19 @@ public class PtyService : IPtyService, IDisposable
         if (IsRunning)
             Stop();
 
-        int result = NativeOpen(rows, cols, shell, out _masterFd, out _pid);
+        int result;
+        try
+        {
+            result = NativeOpen(rows, cols, shell, out _masterFd, out _pid);
+        }
+        catch (DllNotFoundException)
+        {
+            _nativeAvailable = false;
+            _masterFd = -1;
+            _pid = -1;
+            return Task.FromResult(false);
+        }
+
         if (result != 0 || _masterFd < 0)
         {
             _masterFd = -1;
@@ -116,18 +132,25 @@ public class PtyService : IPtyService, IDisposable
     {
         var buffer = new byte[8192];
 
-        while (!ct.IsCancellationRequested && _masterFd >= 0)
+        try
         {
-            int bytesRead = NativeRead(_masterFd, buffer, buffer.Length);
-
-            if (bytesRead <= 0)
+            while (!ct.IsCancellationRequested && _masterFd >= 0)
             {
-                // EOF or error — shell closed
-                break;
-            }
+                int bytesRead = NativeRead(_masterFd, buffer, buffer.Length);
 
-            var text = Encoding.UTF8.GetString(buffer, 0, bytesRead);
-            OutputReceived?.Invoke(text);
+                if (bytesRead <= 0)
+                {
+                    // EOF or error — shell closed
+                    break;
+                }
+
+                var text = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+                OutputReceived?.Invoke(text);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            System.Diagnostics.Debug.WriteLine($"ReadLoop error: {ex.Message}");
         }
     }
 

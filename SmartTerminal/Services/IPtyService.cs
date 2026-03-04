@@ -24,6 +24,9 @@ public interface IPtyService
     /// <summary>True if the shell process is running.</summary>
     bool IsRunning { get; }
 
+    /// <summary>Whether the native PTY library is available. False if libpty.so is missing.</summary>
+    bool NativeAvailable { get; }
+
     /// <summary>Fired when the shell produces output (stdout + stderr merged, as real terminals do).</summary>
     event Action<string>? OutputReceived;
 
