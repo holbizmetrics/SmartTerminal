@@ -1,9 +1,9 @@
 #if ANDROID
 using Android.Content;
 using Android.Graphics;
-using Android.Graphics.Drawables;
 using Android.Views;
 using Android.Widget;
+using AButton = Android.Widget.Button;
 
 namespace SmartTerminal.Platforms.Android.Handlers;
 
@@ -18,8 +18,8 @@ internal class ExtraKeysBar : HorizontalScrollView
     private readonly Action _onPaste;
     private readonly LinearLayout _container;
 
-    private Button? _ctrlButton;
-    private Button? _altButton;
+    private AButton? _ctrlButton;
+    private AButton? _altButton;
 
     // Modifier states: 0 = off, 1 = active (one-shot), 2 = locked
     private int _ctrlState;
@@ -98,17 +98,17 @@ internal class ExtraKeysBar : HorizontalScrollView
         AddView(_container);
     }
 
-    private Button AddKey(string label, string output)
+    private AButton AddKey(string label, string output)
     {
-        var btn = CreateButton(label);
+        var btn = CreateKeyButton(label);
         btn.Click += (s, e) => _onInput(output);
         _container.AddView(btn);
         return btn;
     }
 
-    private Button AddModifierKey(string label)
+    private AButton AddModifierKey(string label)
     {
-        var btn = CreateButton(label);
+        var btn = CreateKeyButton(label);
         btn.Click += (s, e) =>
         {
             if (label == "CTR")
@@ -126,16 +126,16 @@ internal class ExtraKeysBar : HorizontalScrollView
 
     private void AddPasteKey()
     {
-        var btn = CreateButton("PST");
+        var btn = CreateKeyButton("PST");
         btn.Click += (s, e) => _onPaste();
         _container.AddView(btn);
     }
 
-    private Button CreateButton(string label)
+    private AButton CreateKeyButton(string label)
     {
         var ctx = Context!;
         var density = ctx.Resources!.DisplayMetrics!.Density;
-        var btn = new Button(ctx);
+        var btn = new AButton(ctx);
         btn.Text = label;
         btn.SetTextColor(Color.ParseColor("#e0e0e0"));
         btn.TextSize = 12;
@@ -167,7 +167,7 @@ internal class ExtraKeysBar : HorizontalScrollView
         UpdateModifierVisual(_altButton, state);
     }
 
-    private static void UpdateModifierVisual(Button? btn, int state)
+    private static void UpdateModifierVisual(AButton? btn, int state)
     {
         if (btn == null) return;
         switch (state)
