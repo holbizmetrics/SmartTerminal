@@ -1,0 +1,75 @@
+name: Build Android
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  DOTNET_VERSION: '10.0.x'
+  ANDROID_API_LEVEL: 26
+  NDK_VERSION: '27.0.12077973'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Install MAUI workload
+        run: dotnet workload install maui-android
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'microsoft'
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          api-level: ${{ env.ANDROID_API_LEVEL }}
+
+      - name: Install Android NDK
+        run: |
+          yes | sdkmanager "ndk;${{ env.NDK_VERSION }}" --sdk_root=$ANDROID_HOME || true
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/${{ env.NDK_VERSION }}" >> $GITHUB_ENV
+
+      - name: Build native libpty.so
+        working-directory: SmartTerminal/Native
+        run: |
+          chmod +x build_native.sh
+          ./build_native.sh
+
+      - name: Restore dependencies
+        working-directory: SmartTerminal
+        run: dotnet restore
+
+      - name: Build APK
+        working-directory: SmartTerminal
+        run: |
+          dotnet build -f net10.0-android -c Release \
+            -p:AndroidSigningKeyStore="" \
+            -p:AndroidKeyStore=false
+
+      - name: Publish APK
+        working-directory: SmartTerminal
+        run: |
+          dotnet publish -f net10.0-android -c Release \
+            -p:AndroidSigningKeyStore="" \
+            -p:AndroidKeyStore=false \
+            -o ./artifacts
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SmartTerminal-APK
+          path: SmartTerminal/artifacts/**/*.apk
+          if-no-files-found: warn

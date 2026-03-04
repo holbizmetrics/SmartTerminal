@@ -1,9 +1,11 @@
+using SmartTerminal.Views;
+
 namespace SmartTerminal;
 
 public class App : Application
 {
-    public App()
+    public App(TerminalPage terminalPage)
     {
-        MainPage = new NavigationPage(new Views.TerminalPage());
+        MainPage = new NavigationPage(terminalPage);
     }
 }

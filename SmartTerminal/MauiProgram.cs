@@ -1,4 +1,3 @@
-using Microsoft.Maui.LifecycleEvents;
 using SmartTerminal.Platforms.Android.Handlers;
 using SmartTerminal.Services;
 using SmartTerminal.Views;

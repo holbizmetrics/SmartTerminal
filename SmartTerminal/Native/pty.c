@@ -80,13 +80,17 @@ int pty_open(int rows, int cols, const char *shell, int *out_master_fd, int *out
  * Returns bytes read, 0 on EOF, -1 on error.
  */
 int pty_read(int master_fd, char *buffer, int buffer_size) {
-    ssize_t n = read(master_fd, buffer, (size_t)buffer_size);
+    ssize_t n;
+    do {
+        n = read(master_fd, buffer, (size_t)buffer_size);
+    } while (n < 0 && errno == EINTR);
+
     if (n < 0) {
-        if (errno == EAGAIN || errno == EINTR)
-            return 0;
-        return -1;
+        if (errno == EAGAIN)
+            return 0;  /* Non-blocking: no data available */
+        return -1;     /* Real error */
     }
-    return (int)n;
+    return (int)n;     /* 0 = EOF, >0 = bytes read */
 }
 
 /*

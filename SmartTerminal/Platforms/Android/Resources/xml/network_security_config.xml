@@ -5,9 +5,4 @@
             <certificates src="system" />
         </trust-anchors>
     </base-config>
-    <!-- Allow CDN for xterm.js assets -->
-    <domain-config cleartextTrafficPermitted="false">
-        <domain includeSubdomains="true">cdn.jsdelivr.net</domain>
-        <domain includeSubdomains="true">cdnjs.cloudflare.com</domain>
-    </domain-config>
 </network-security-config>

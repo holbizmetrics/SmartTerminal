@@ -131,3 +131,8 @@ The architecture is designed for extensibility toward full Termux parity:
 - **Phase 4**: Node.js, Python, etc. — full dev environment
 
 The PTY layer already supports any shell, so swapping `/system/bin/sh` for a proot bash session is a configuration change, not an architecture change.
+
+## Known Constraints
+
+- **Single PTY session**: `PtyService` is registered as a singleton with mutable state. For multi-tab support (Phase 2+), refactor to scoped/factory pattern so each tab gets its own PTY instance.
+- **Rich rendering (KaTeX/Markdown)**: Uses OSC 1337 escape sequences. Programs must opt in — no automatic detection of LaTeX/Markdown in regular output.

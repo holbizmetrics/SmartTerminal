@@ -107,7 +107,7 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
         var base64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(data));
         MainThread.BeginInvokeOnMainThread(() =>
         {
-            _webView?.EvaluateJavascript($"termWrite('{base64}')", null);
+            _webView?.EvaluateJavascript($"termWrite(\"{base64}\")", null);
         });
     }
 

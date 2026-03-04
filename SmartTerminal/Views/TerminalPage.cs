@@ -11,10 +11,11 @@ public class TerminalPage : ContentPage
 {
     private readonly IPtyService _pty;
     private readonly SmartTerminalView _terminal;
+    private bool _shellExited;
 
-    public TerminalPage()
+    public TerminalPage(IPtyService pty)
     {
-        _pty = Application.Current!.Handler!.MauiContext!.Services.GetRequiredService<IPtyService>();
+        _pty = pty;
 
         NavigationPage.SetHasNavigationBar(this, false);
         BackgroundColor = Color.FromArgb("#1a1a2e");
@@ -64,6 +65,14 @@ public class TerminalPage : ContentPage
         {
             await _pty.WriteAsync(data);
         }
+        else if (_shellExited)
+        {
+            // Any keypress after exit restarts the shell
+            _shellExited = false;
+            _terminal.WriteOutput?.Invoke("\x1b[2J\x1b[H"); // Clear screen
+            var shell = FindShell();
+            await _pty.StartAsync(shell, 24, 80);
+        }
     }
 
     /// <summary>
@@ -94,11 +103,12 @@ public class TerminalPage : ContentPage
     /// </summary>
     private void OnProcessExited(int exitCode)
     {
+        _shellExited = true;
         MainThread.BeginInvokeOnMainThread(() =>
         {
             _terminal.WriteOutput?.Invoke(
                 $"\r\n\x1b[33m[Process exited with code {exitCode}]\x1b[0m\r\n" +
-                "\x1b[90mTap to restart...\x1b[0m\r\n");
+                "\x1b[90mPress any key to restart...\x1b[0m\r\n");
         });
     }
 
@@ -128,6 +138,14 @@ public class TerminalPage : ContentPage
     protected override void OnDisappearing()
     {
         base.OnDisappearing();
+
+        // Unsubscribe to prevent handler accumulation on the singleton PtyService
+        _terminal.InputReceived -= OnInputReceived;
+        _terminal.SizeChanged -= OnTerminalSizeChanged;
+        _terminal.TerminalReady -= OnTerminalReady;
+        _pty.OutputReceived -= OnPtyOutput;
+        _pty.ProcessExited -= OnProcessExited;
+
         _pty.Stop();
     }
 }
