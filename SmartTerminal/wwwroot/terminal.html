@@ -274,6 +274,14 @@
 
             initRichRendering();
 
+            // Auto-copy: when user selects text, copy to system clipboard
+            term.onSelectionChange(function() {
+                var sel = term.getSelection();
+                if (sel && sel.length > 0) {
+                    copyToClipboard(sel);
+                }
+            });
+
             // When user types → send to C#
             term.onData(function(data) {
                 sendToCSharp('input', data);
@@ -643,6 +651,21 @@
             document.execCommand('copy');
             document.body.removeChild(ta);
             return Promise.resolve();
+        }
+
+        /**
+         * Paste text into terminal with bracketed paste mode support.
+         * Called from C# for paste operations.
+         */
+        function termPaste(base64Data) {
+            if (!term) return;
+            try {
+                var text = atob(base64Data);
+                // Bracket the paste for apps that support it
+                term.paste(text);
+            } catch (e) {
+                console.error('termPaste error:', e);
+            }
         }
 
         // --- JS → C# communication ---

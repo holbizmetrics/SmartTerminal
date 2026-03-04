@@ -30,23 +30,29 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
 {
     private WebView? _webView;
     private SmartInputEditText? _inputOverlay;
+    private ExtraKeysBar? _extraKeysBar;
     private SmartTerminalView? _termView;
 
 	public static IPropertyMapper<SmartTerminalView, SmartTerminalHandler> Mapper =
 		new PropertyMapper<SmartTerminalView, SmartTerminalHandler>(ViewMapper);
 
 	public SmartTerminalHandler() : base(Mapper) { }
-	
+
     protected override FrameLayout CreatePlatformView()
     {
         var context = Context!;
+        var density = context.Resources!.DisplayMetrics!.Density;
         var frame = new FrameLayout(context);
 
-        // 1. WebView — full-size, renders xterm.js
+        var extraKeysHeight = (int)(42 * density);
+
+        // 1. WebView — fills view except extra keys bar at bottom
         _webView = new WebView(context);
-        _webView.LayoutParameters = new FrameLayout.LayoutParams(
+        var webViewLp = new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MatchParent,
             ViewGroup.LayoutParams.MatchParent);
+        webViewLp.BottomMargin = extraKeysHeight;
+        _webView.LayoutParameters = webViewLp;
 
         var settings = _webView.Settings;
         settings.JavaScriptEnabled = true;
@@ -73,6 +79,16 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
 
         frame.AddView(_inputOverlay);
 
+        // 3. ExtraKeysBar — anchored at bottom, above soft keyboard
+        _extraKeysBar = new ExtraKeysBar(context, OnExtraKeyInput, OnPasteRequested);
+        var barLp = new FrameLayout.LayoutParams(
+            ViewGroup.LayoutParams.MatchParent,
+            extraKeysHeight,
+            GravityFlags.Bottom);
+        _extraKeysBar.LayoutParameters = barLp;
+
+        frame.AddView(_extraKeysBar);
+
         return frame;
     }
 
@@ -97,6 +113,7 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
         _webView?.Destroy();
         _webView = null;
         _inputOverlay = null;
+        _extraKeysBar = null;
         base.DisconnectHandler(platformView);
     }
 
@@ -141,12 +158,50 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
 
     /// <summary>
     /// Called when the SmartInputEditText captures input from SwiftKey or any keyboard.
-    /// Forwards it into xterm.js which handles the terminal emulation,
-    /// then xterm.js sends it back to C# via the URL scheme for PTY writing.
+    /// Applies sticky modifiers (Ctrl/Alt) from the extra keys bar, then forwards
+    /// to xterm.js which handles the terminal emulation.
     /// </summary>
     private void OnSmartInput(string text)
     {
-        _termView?.RaiseInputReceived(text);
+        var modified = _extraKeysBar?.ApplyModifiers(text) ?? text;
+        _termView?.RaiseInputReceived(modified);
+    }
+
+    /// <summary>
+    /// Called when a key on the extra keys bar is tapped (Esc, Tab, arrows, symbols).
+    /// These bypass the soft keyboard entirely.
+    /// </summary>
+    private void OnExtraKeyInput(string sequence)
+    {
+        _termView?.RaiseInputReceived(sequence);
+    }
+
+    /// <summary>
+    /// Called when the Paste button on the extra keys bar is tapped.
+    /// Reads system clipboard and sends content as bracketed paste.
+    /// </summary>
+    private void OnPasteRequested()
+    {
+        try
+        {
+            var clipboard = (global::Android.Content.ClipboardManager?)
+                Context?.GetSystemService(Context.ClipboardService);
+            var clip = clipboard?.PrimaryClip;
+            if (clip != null && clip.ItemCount > 0)
+            {
+                var text = clip.GetItemAt(0)?.CoerceToText(Context)?.ToString();
+                if (!string.IsNullOrEmpty(text))
+                {
+                    // Send with bracketed paste mode markers for apps that support it
+                    var bracketed = "\x1b[200~" + text + "\x1b[201~";
+                    _termView?.RaiseInputReceived(bracketed);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Paste error: {ex.Message}");
+        }
     }
 
     // --- WebView → C# (URL scheme interception) ---
