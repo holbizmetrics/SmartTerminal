@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 456 456">
+  <rect width="456" height="456" rx="64" fill="#1a1a2e"/>
+  <text x="228" y="300" font-family="monospace" font-size="280" font-weight="bold" fill="#e94560" text-anchor="middle">&#x276F;</text>
+  <rect x="230" y="160" width="12" height="160" fill="#53b3cb">
+    <animate attributeName="opacity" values="1;0;1" dur="1s" repeatCount="indefinite"/>
+  </rect>
+</svg>

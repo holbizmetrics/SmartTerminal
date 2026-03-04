@@ -21,6 +21,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- App icon: terminal cursor on dark background -->
+    <MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appicon_foreground.svg" Color="#1a1a2e" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Raw assets: xterm.js terminal page -->
     <MauiAsset Include="wwwroot\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
