@@ -48,8 +48,7 @@ for ABI in "${!TARGETS[@]}"; do
     echo "Building libpty.so for ${ABI}..."
     "$CC" -shared -fPIC -O2 -Wall \
         -o "${OUTDIR}/libpty.so" \
-        "$SRC" \
-        -lutil
+        "$SRC"
 
     echo "  → ${OUTDIR}/libpty.so"
 done
