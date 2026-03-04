@@ -178,7 +178,10 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
 
     /// <summary>
     /// Called when the Paste button on the extra keys bar is tapped.
-    /// Reads system clipboard and sends content as bracketed paste.
+    /// Smart paste: detects clipboard content type.
+    /// - Text → bracketed paste into terminal
+    /// - Image → save to cache file, inject file path into terminal
+    /// This enables pasting screenshots directly into Claude Code.
     /// </summary>
     private void OnPasteRequested()
     {
@@ -187,20 +190,88 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
             var clipboard = (global::Android.Content.ClipboardManager?)
                 Context?.GetSystemService(Context.ClipboardService);
             var clip = clipboard?.PrimaryClip;
-            if (clip != null && clip.ItemCount > 0)
+            if (clip == null || clip.ItemCount == 0) return;
+
+            var item = clip.GetItemAt(0);
+            if (item == null) return;
+
+            // Check for image content first
+            var uri = item.Uri;
+            if (uri != null && clip.Description != null)
             {
-                var text = clip.GetItemAt(0)?.CoerceToText(Context)?.ToString();
-                if (!string.IsNullOrEmpty(text))
+                for (int i = 0; i < clip.Description.MimeTypeCount; i++)
                 {
-                    // Send with bracketed paste mode markers for apps that support it
-                    var bracketed = "\x1b[200~" + text + "\x1b[201~";
-                    _termView?.RaiseInputReceived(bracketed);
+                    var mime = clip.Description.GetMimeType(i);
+                    if (mime != null && mime.StartsWith("image/"))
+                    {
+                        var path = SaveClipboardImage(uri, mime);
+                        if (path != null)
+                        {
+                            // Inject the file path into the terminal
+                            var bracketed = "\x1b[200~" + path + "\x1b[201~";
+                            _termView?.RaiseInputReceived(bracketed);
+                            return;
+                        }
+                    }
                 }
+            }
+
+            // Fall back to text paste
+            var text = item.CoerceToText(Context)?.ToString();
+            if (!string.IsNullOrEmpty(text))
+            {
+                var bracketed = "\x1b[200~" + text + "\x1b[201~";
+                _termView?.RaiseInputReceived(bracketed);
             }
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"Paste error: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Saves a clipboard image URI to the app's cache directory.
+    /// Returns the file path, or null on failure.
+    /// </summary>
+    private string? SaveClipboardImage(global::Android.Net.Uri uri, string mimeType)
+    {
+        try
+        {
+            var context = Context;
+            if (context == null) return null;
+
+            var resolver = context.ContentResolver;
+            if (resolver == null) return null;
+
+            // Determine file extension from MIME type
+            var ext = mimeType switch
+            {
+                "image/png" => ".png",
+                "image/jpeg" or "image/jpg" => ".jpg",
+                "image/gif" => ".gif",
+                "image/webp" => ".webp",
+                _ => ".png"
+            };
+
+            var cacheDir = context.CacheDir?.AbsolutePath;
+            if (cacheDir == null) return null;
+
+            var fileName = $"clipboard_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}{ext}";
+            var filePath = System.IO.Path.Combine(cacheDir, fileName);
+
+            using var inputStream = resolver.OpenInputStream(uri);
+            if (inputStream == null) return null;
+
+            using var outputStream = System.IO.File.Create(filePath);
+            inputStream.CopyTo(outputStream);
+
+            return filePath;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"SaveClipboardImage error: {ex.Message}");
+            return null;
         }
     }
 
