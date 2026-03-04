@@ -1,9 +1,9 @@
 #if ANDROID
 using Android.Content;
-using Android.Graphics;
 using Android.Views;
 using Android.Widget;
 using AButton = Android.Widget.Button;
+using AColor = Android.Graphics.Color;
 
 namespace SmartTerminal.Platforms.Android.Handlers;
 
@@ -68,7 +68,7 @@ internal class ExtraKeysBar : HorizontalScrollView
         _onPaste = onPaste;
 
         HorizontalScrollBarEnabled = false;
-        SetBackgroundColor(Color.ParseColor("#0f0f23"));
+        SetBackgroundColor(AColor.ParseColor("#0f0f23"));
         SetPadding(4, 2, 4, 2);
 
         _container = new LinearLayout(context)
@@ -137,7 +137,7 @@ internal class ExtraKeysBar : HorizontalScrollView
         var density = ctx.Resources!.DisplayMetrics!.Density;
         var btn = new AButton(ctx);
         btn.Text = label;
-        btn.SetTextColor(Color.ParseColor("#e0e0e0"));
+        btn.SetTextColor(AColor.ParseColor("#e0e0e0"));
         btn.TextSize = 12;
         btn.SetAllCaps(false);
         btn.SetMinimumWidth((int)(36 * density));
@@ -149,7 +149,7 @@ internal class ExtraKeysBar : HorizontalScrollView
         btn.LayoutParameters = lp;
 
         // Flat dark style
-        btn.SetBackgroundColor(Color.ParseColor("#1a1a2e"));
+        btn.SetBackgroundColor(AColor.ParseColor("#1a1a2e"));
         btn.StateListAnimator = null; // Remove elevation shadow
 
         return btn;
@@ -173,16 +173,16 @@ internal class ExtraKeysBar : HorizontalScrollView
         switch (state)
         {
             case 0: // Off
-                btn.SetBackgroundColor(Color.ParseColor("#1a1a2e"));
-                btn.SetTextColor(Color.ParseColor("#e0e0e0"));
+                btn.SetBackgroundColor(AColor.ParseColor("#1a1a2e"));
+                btn.SetTextColor(AColor.ParseColor("#e0e0e0"));
                 break;
             case 1: // Active (one-shot)
-                btn.SetBackgroundColor(Color.ParseColor("#e94560"));
-                btn.SetTextColor(Color.ParseColor("#ffffff"));
+                btn.SetBackgroundColor(AColor.ParseColor("#e94560"));
+                btn.SetTextColor(AColor.ParseColor("#ffffff"));
                 break;
             case 2: // Locked
-                btn.SetBackgroundColor(Color.ParseColor("#53b3cb"));
-                btn.SetTextColor(Color.ParseColor("#ffffff"));
+                btn.SetBackgroundColor(AColor.ParseColor("#53b3cb"));
+                btn.SetTextColor(AColor.ParseColor("#ffffff"));
                 break;
         }
     }
