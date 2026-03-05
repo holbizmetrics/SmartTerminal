@@ -17,7 +17,6 @@ public class TerminalPage : ContentPage
     {
         _pty = pty;
 
-        NavigationPage.SetHasNavigationBar(this, false);
         BackgroundColor = Color.FromArgb("#1a1a2e");
 
         _terminal = new SmartTerminalView

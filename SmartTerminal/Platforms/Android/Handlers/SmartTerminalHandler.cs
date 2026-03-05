@@ -59,25 +59,40 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
         settings.DomStorageEnabled = true;
         settings.AllowFileAccess = true;
         settings.AllowContentAccess = true;
+        settings.AllowFileAccessFromFileURLs = true;
+        settings.AllowUniversalAccessFromFileURLs = true;
         settings.MediaPlaybackRequiresUserGesture = false;
 
-        _webView.SetWebViewClient(new TerminalWebViewClient(this));
         _webView.SetBackgroundColor(global::Android.Graphics.Color.ParseColor("#1a1a2e"));
+
+        // Custom clients for JS↔C# communication
+        _webView.SetWebViewClient(new TerminalWebViewClient());
+        _webView.SetWebChromeClient(new TerminalChromeClient(this));
 
         frame.AddView(_webView);
 
-        // 2. SmartInputEditText — invisible, captures keyboard input
+        // 2. SmartInputEditText — tiny (1x1), captures keyboard input via InputConnection.
+        //    Must NOT be fullscreen — that blocks all touch events to the WebView.
         _inputOverlay = new SmartInputEditText(context, OnSmartInput);
-        _inputOverlay.LayoutParameters = new FrameLayout.LayoutParams(
-            ViewGroup.LayoutParams.MatchParent,
-            ViewGroup.LayoutParams.MatchParent);
-        // Make it invisible but still focusable
+        _inputOverlay.LayoutParameters = new FrameLayout.LayoutParams(1, 1);
         _inputOverlay.SetBackgroundColor(global::Android.Graphics.Color.Transparent);
         _inputOverlay.SetTextColor(global::Android.Graphics.Color.Transparent);
         _inputOverlay.SetCursorVisible(false);
         _inputOverlay.Alpha = 0f;
 
         frame.AddView(_inputOverlay);
+
+        // Tap on terminal area → focus EditText to show/keep soft keyboard
+        _webView.Touch += (sender, e) =>
+        {
+            if (e.Event?.Action == MotionEventActions.Down && _inputOverlay != null)
+            {
+                _inputOverlay.RequestFocus();
+                var imm = (InputMethodManager?)context.GetSystemService(Context.InputMethodService);
+                imm?.ShowSoftInput(_inputOverlay, ShowFlags.Implicit);
+            }
+            e.Handled = false; // let WebView handle touch too (scroll, select)
+        };
 
         // 3. ExtraKeysBar — anchored at bottom, above soft keyboard
         _extraKeysBar = new ExtraKeysBar(context, OnExtraKeyInput, OnPasteRequested);
@@ -103,8 +118,47 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
         _termView.FitTerminal = FitTerminal;
         _termView.FocusTerminal = FocusTerminal;
 
-        // Load xterm.js page
-        _webView?.LoadUrl("file:///android_asset/terminal.html");
+        // Load terminal AFTER the view is laid out — WebView needs real dimensions
+        // to render content. Loading in CreatePlatformView is too early.
+        if (_webView != null)
+        {
+            _webView.ViewTreeObserver!.GlobalLayout += OnFirstLayout;
+        }
+    }
+
+    private void OnFirstLayout(object? sender, EventArgs e)
+    {
+        if (_webView == null) return;
+
+        // Unsubscribe — only need this once
+        _webView.ViewTreeObserver!.GlobalLayout -= OnFirstLayout;
+
+        var w = _webView.Width;
+        var h = _webView.Height;
+        System.Diagnostics.Debug.WriteLine($"[SmartTerminal] WebView laid out: {w}x{h}");
+
+        if (w > 0 && h > 0)
+        {
+            // DIAGNOSTIC: first test with a simple data URL to verify rendering works
+            _webView.LoadUrl("data:text/html,<html><body style='background:lime;padding:40px'>" +
+                "<h1 style='color:black;font-size:32px'>WEBVIEW WORKS!</h1>" +
+                $"<p>Size: {w}x{h}</p></body></html>");
+            System.Diagnostics.Debug.WriteLine($"[SmartTerminal] Loaded diagnostic page at {w}x{h}");
+        }
+        else
+        {
+            System.Diagnostics.Debug.WriteLine("[SmartTerminal] WebView has zero dimensions, retrying...");
+            _webView.PostDelayed(() =>
+            {
+                if (_webView == null) return;
+                var w2 = _webView.Width;
+                var h2 = _webView.Height;
+                System.Diagnostics.Debug.WriteLine($"[SmartTerminal] WebView delayed: {w2}x{h2}");
+                _webView.LoadUrl("data:text/html,<html><body style='background:orange;padding:40px'>" +
+                    $"<h1 style='color:black;font-size:32px'>DELAYED LOAD</h1>" +
+                    $"<p>Size: {w2}x{h2}</p></body></html>");
+            }, 200);
+        }
     }
 
     protected override void DisconnectHandler(FrameLayout platformView)
@@ -324,28 +378,43 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
 
     // --- WebViewClient ---
 
+    /// <summary>
+    /// Prevents the WebView from navigating away from terminal.html.
+    /// </summary>
     private class TerminalWebViewClient : WebViewClient
+    {
+        public override bool ShouldOverrideUrlLoading(WebView? view, IWebResourceRequest? request)
+            => true; // block all page-initiated navigation
+    }
+
+    /// <summary>
+    /// Intercepts console.log messages from terminal.html for JS → C# communication.
+    /// Messages prefixed with "smartterm:" are parsed and routed to HandleTerminalMessage.
+    /// This replaces the unreliable window.location URL scheme interception.
+    /// </summary>
+    private class TerminalChromeClient : WebChromeClient
     {
         private readonly SmartTerminalHandler _handler;
 
-        public TerminalWebViewClient(SmartTerminalHandler handler) => _handler = handler;
+        public TerminalChromeClient(SmartTerminalHandler handler) => _handler = handler;
 
-        public override bool ShouldOverrideUrlLoading(WebView? view, IWebResourceRequest? request)
+        public override bool OnConsoleMessage(ConsoleMessage? consoleMessage)
         {
-            var url = request?.Url?.ToString();
-            if (url != null && url.StartsWith("smartterm://"))
+            var msg = consoleMessage?.Message();
+            if (msg != null && msg.StartsWith("smartterm:"))
             {
-                // Parse: smartterm://type?data=base64encoded
-                var uri = new Uri(url);
-                var type = uri.Host;
-                var query = System.Web.HttpUtility.ParseQueryString(uri.Query);
-                var data = query["data"] ?? "";
-
-                _handler.HandleTerminalMessage(type, data);
-                return true; // consumed
+                // Parse: smartterm:type:base64data
+                var prefixLen = "smartterm:".Length;
+                var secondColon = msg.IndexOf(':', prefixLen);
+                if (secondColon > prefixLen)
+                {
+                    var type = msg.Substring(prefixLen, secondColon - prefixLen);
+                    var data = msg.Substring(secondColon + 1);
+                    _handler.HandleTerminalMessage(type, data);
+                }
+                return true;
             }
-
-            return base.ShouldOverrideUrlLoading(view, request);
+            return base.OnConsoleMessage(consoleMessage);
         }
     }
 }
@@ -368,7 +437,7 @@ internal class SmartInputEditText : EditText
 
         // Make it capture keyboard but not display anything
         ImeOptions = ImeAction.None;
-        SetRawInputType(InputTypes.ClassText | InputTypes.TextFlagNoSuggestions);
+        SetRawInputType(InputTypes.ClassText | InputTypes.TextFlagAutoCorrect);
         Focusable = true;
         FocusableInTouchMode = true;
     }

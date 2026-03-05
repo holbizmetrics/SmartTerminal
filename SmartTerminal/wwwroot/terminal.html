@@ -9,7 +9,6 @@
     <link rel="stylesheet" href="vendor/xterm/xterm.min.css" />
     <script src="vendor/xterm/xterm.min.js"></script>
     <script src="vendor/xterm/addon-fit.min.js"></script>
-    <script src="vendor/xterm/addon-webgl.min.js"></script>
     <script src="vendor/xterm/addon-web-links.min.js"></script>
 
     <!-- KaTeX for inline LaTeX rendering (bundled) -->
@@ -194,6 +193,9 @@
     </style>
 </head>
 <body>
+    <div id="loading-indicator" style="position:fixed;top:0;left:0;right:0;padding:20px;color:#e94560;font-size:18px;font-family:monospace;z-index:99999;">
+        SmartTerminal loading...
+    </div>
     <div id="terminal-container"></div>
 
     <script>
@@ -248,15 +250,7 @@
             fitAddon = new FitAddon.FitAddon();
             term.loadAddon(fitAddon);
 
-            try {
-                const webglAddon = new WebglAddon.WebglAddon();
-                term.loadAddon(webglAddon);
-                webglAddon.onContextLoss(() => {
-                    webglAddon.dispose();
-                });
-            } catch (e) {
-                console.warn('WebGL addon failed, falling back to canvas:', e);
-            }
+            // Canvas renderer — WebGL removed for Android WebView compatibility
 
             const webLinksAddon = new WebLinksAddon.WebLinksAddon();
             term.loadAddon(webLinksAddon);
@@ -673,7 +667,10 @@
         function sendToCSharp(type, data) {
             // Encode data as base64 to handle special characters
             const encoded = btoa(unescape(encodeURIComponent(data)));
-            window.location = 'smartterm://' + type + '?data=' + encoded;
+            // console.log bridge — intercepted by WebChromeClient on the C# side.
+            // Replaces window.location scheme which was unreliable (dropped messages,
+            // page navigation issues causing blank screen).
+            console.log('smartterm:' + type + ':' + encoded);
         }
 
         // --- Error display for diagnostics ---
@@ -712,6 +709,9 @@
 
             try {
                 initTerminal();
+                // Terminal init succeeded — hide loading indicator
+                var li = document.getElementById('loading-indicator');
+                if (li) li.style.display = 'none';
             } catch (e) {
                 showError('initTerminal failed: ' + e.message + '\n' + (e.stack || ''));
             }

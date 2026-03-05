@@ -13,6 +13,7 @@ public class App : Application
 
     protected override Window CreateWindow(IActivationState? activationState)
     {
-        return new Window(new NavigationPage(_terminalPage));
+        // No NavigationPage — it adds a nav bar/hamburger that covers terminal content
+        return new Window(_terminalPage);
     }
 }

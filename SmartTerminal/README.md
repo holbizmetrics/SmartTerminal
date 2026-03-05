@@ -16,7 +16,7 @@ Smart Terminal intercepts `commitText()` with a custom `SmartInputConnection` an
 - **Extra keys toolbar** — Esc, Ctrl (sticky), Alt (sticky), Tab, |, -, ~, /, \, _, arrows, Paste
 - **Clipboard integration** — Auto-copy on selection, paste button with bracketed paste mode
 - **Rich rendering** — Inline LaTeX (KaTeX) and Markdown via OSC 1337 escape sequences
-- **Full terminal emulation** — xterm.js with WebGL rendering, 10K scrollback, web links
+- **Full terminal emulation** — xterm.js with canvas rendering, 10K scrollback, web links
 - **Native PTY** — Real forkpty() via C library, signal-safe I/O with EINTR handling
 - **Offline-ready** — All assets bundled locally (xterm.js, KaTeX with fonts, marked.js)
 - **CI/CD** — GitHub Actions pipeline builds APK on every push
@@ -28,7 +28,7 @@ Smart Terminal intercepts `commitText()` with a custom `SmartInputConnection` an
 │  ExtraKeysBar (horizontal scrollable)       │
 │  Esc│Ctrl│Alt│Tab│|│-│~│/│\│_│↑│↓│←│→│Paste│
 ├─────────────────────────────────────────────┤
-│  SmartInputEditText (invisible overlay)      │
+│  SmartInputEditText (1x1 pixel, captures KB) │
 │  └── SmartInputConnection                    │
 │      ├── commitText() → catches SwiftKey     │
 │      ├── sendKeyEvent() → catches physical   │
