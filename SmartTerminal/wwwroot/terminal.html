@@ -305,6 +305,17 @@
                 }
             });
 
+            // Bell notification — vibrate on \a
+            term.onBell(function() {
+                sendToCSharp('bell', '1');
+                // Visual bell: brief flash
+                var container = document.getElementById('terminal-container');
+                if (container) {
+                    container.style.opacity = '0.7';
+                    setTimeout(function() { container.style.opacity = '1'; }, 100);
+                }
+            });
+
             // Notify C# we're ready
             sendToCSharp('ready', term.cols + ',' + term.rows);
         }

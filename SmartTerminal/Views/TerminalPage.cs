@@ -43,6 +43,19 @@ public class TerminalPage : ContentPage
     private async void OnTerminalReady(int cols, int rows)
     {
         var shell = FindShell();
+
+        // Onboarding: show environment info on first launch
+        _terminal.WriteOutput?.Invoke(
+            "\x1b[36mSmart Terminal\x1b[0m\r\n" +
+            $"Shell: {shell}\r\n");
+
+        if (shell.Contains("termux"))
+            _terminal.WriteOutput?.Invoke(
+                "\x1b[32mTermux environment detected.\x1b[0m\r\n\r\n");
+        else
+            _terminal.WriteOutput?.Invoke(
+                "\x1b[33mStock Android shell. Install Termux for full environment.\x1b[0m\r\n\r\n");
+
         bool started = await _pty.StartAsync(shell, rows, cols);
 
         // Start foreground service to keep session alive in background

@@ -365,6 +365,21 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
                     }
                     break;
 
+                case "bell":
+                    // Terminal bell → vibrate
+                    try
+                    {
+                        var vibrator = (global::Android.OS.Vibrator?)
+                            Context?.GetSystemService(Context.VibratorService);
+                        if (vibrator != null && vibrator.HasVibrator)
+                        {
+                            vibrator.Vibrate(global::Android.OS.VibrationEffect.CreateOneShot(
+                                50, global::Android.OS.VibrationEffect.DefaultAmplitude));
+                        }
+                    }
+                    catch { /* vibration not available */ }
+                    break;
+
                 case "ready":
                     var readyParts = data.Split(',');
                     if (readyParts.Length == 2 &&
