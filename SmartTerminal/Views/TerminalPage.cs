@@ -45,6 +45,15 @@ public class TerminalPage : ContentPage
         var shell = FindShell();
         bool started = await _pty.StartAsync(shell, rows, cols);
 
+        // Start foreground service to keep session alive in background
+        if (started)
+        {
+#if ANDROID
+            SmartTerminal.Platforms.Android.Services.TerminalForegroundService.Start(
+                Platform.CurrentActivity!);
+#endif
+        }
+
         if (!started)
         {
             if (!_pty.NativeAvailable)
@@ -156,5 +165,11 @@ public class TerminalPage : ContentPage
         _pty.ProcessExited -= OnProcessExited;
 
         _pty.Stop();
+
+        // Stop foreground service when terminal page disappears
+#if ANDROID
+        SmartTerminal.Platforms.Android.Services.TerminalForegroundService.Stop(
+            Platform.CurrentActivity!);
+#endif
     }
 }
