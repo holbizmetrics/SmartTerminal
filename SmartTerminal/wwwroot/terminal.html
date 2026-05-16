@@ -490,21 +490,43 @@
                     breaks: true,
                     gfm: true
                 });
-                // Sanitize: strip script tags, event handlers, and dangerous elements
+                // Sanitize: allowlist-based — only keep known-safe elements and attributes
                 var tempDiv = document.createElement('div');
                 tempDiv.innerHTML = html;
-                tempDiv.querySelectorAll('script,iframe,object,embed,form,input,button').forEach(
-                    function(el) { el.remove(); }
-                );
-                tempDiv.querySelectorAll('*').forEach(function(el) {
-                    Array.from(el.attributes).forEach(function(attr) {
-                        if (attr.name.startsWith('on') || attr.value.trim().toLowerCase().startsWith('javascript:')) {
-                            el.removeAttribute(attr.name);
+                var ALLOWED_TAGS = new Set([
+                    'p','h1','h2','h3','h4','h5','h6','ul','ol','li','code','pre',
+                    'em','strong','a','blockquote','table','thead','tbody','tr','th','td',
+                    'hr','br','img','span','div','dl','dt','dd','sup','sub','del','ins',
+                    'caption','col','colgroup','details','summary','mark','small','abbr'
+                ]);
+                var ALLOWED_ATTRS = new Set(['href','src','class','id','alt','title','colspan','rowspan']);
+                function sanitizeNode(parent) {
+                    var toRemove = [];
+                    for (var i = 0; i < parent.childNodes.length; i++) {
+                        var node = parent.childNodes[i];
+                        if (node.nodeType === 1) { // Element
+                            if (!ALLOWED_TAGS.has(node.tagName.toLowerCase())) {
+                                toRemove.push(node);
+                            } else {
+                                // Strip disallowed attributes
+                                Array.from(node.attributes).forEach(function(attr) {
+                                    if (!ALLOWED_ATTRS.has(attr.name.toLowerCase())) {
+                                        node.removeAttribute(attr.name);
+                                    } else if (attr.name === 'href' || attr.name === 'src') {
+                                        var val = attr.value.trim().toLowerCase().replace(/[\x00-\x1f]/g, '');
+                                        if (!val.startsWith('https://') && !val.startsWith('http://') &&
+                                            !val.startsWith('data:image/') && !val.startsWith('#')) {
+                                            node.removeAttribute(attr.name);
+                                        }
+                                    }
+                                });
+                                sanitizeNode(node);
+                            }
                         }
-                    });
-                    // Strip srcdoc on iframes that survived (belt + suspenders)
-                    if (el.hasAttribute('srcdoc')) el.removeAttribute('srcdoc');
-                });
+                    }
+                    toRemove.forEach(function(n) { n.remove(); });
+                }
+                sanitizeNode(tempDiv);
                 element.innerHTML = tempDiv.innerHTML;
 
                 // Process LaTeX inside Markdown if enabled

@@ -59,8 +59,8 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
         settings.DomStorageEnabled = true;
         settings.AllowFileAccess = true;
         settings.AllowContentAccess = true;
-        settings.AllowFileAccessFromFileURLs = true;
-        settings.AllowUniversalAccessFromFileURLs = true;
+        settings.AllowFileAccessFromFileURLs = false;
+        settings.AllowUniversalAccessFromFileURLs = false;
         settings.MediaPlaybackRequiresUserGesture = false;
 
         _webView.SetBackgroundColor(global::Android.Graphics.Color.ParseColor("#1a1a2e"));
@@ -139,11 +139,8 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
 
         if (w > 0 && h > 0)
         {
-            // DIAGNOSTIC: first test with a simple data URL to verify rendering works
-            _webView.LoadUrl("data:text/html,<html><body style='background:lime;padding:40px'>" +
-                "<h1 style='color:black;font-size:32px'>WEBVIEW WORKS!</h1>" +
-                $"<p>Size: {w}x{h}</p></body></html>");
-            System.Diagnostics.Debug.WriteLine($"[SmartTerminal] Loaded diagnostic page at {w}x{h}");
+            _webView.LoadUrl("file:///android_asset/terminal.html");
+            System.Diagnostics.Debug.WriteLine($"[SmartTerminal] Loaded terminal.html at {w}x{h}");
         }
         else
         {
@@ -154,9 +151,7 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
                 var w2 = _webView.Width;
                 var h2 = _webView.Height;
                 System.Diagnostics.Debug.WriteLine($"[SmartTerminal] WebView delayed: {w2}x{h2}");
-                _webView.LoadUrl("data:text/html,<html><body style='background:orange;padding:40px'>" +
-                    $"<h1 style='color:black;font-size:32px'>DELAYED LOAD</h1>" +
-                    $"<p>Size: {w2}x{h2}</p></body></html>");
+                _webView.LoadUrl("file:///android_asset/terminal.html");
             }, 200);
         }
     }
@@ -262,7 +257,8 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
                         if (path != null)
                         {
                             // Inject the file path into the terminal
-                            var bracketed = "\x1b[200~" + path + "\x1b[201~";
+                            var safePath = SanitizePasteContent(path);
+                            var bracketed = "\x1b[200~" + safePath + "\x1b[201~";
                             _termView?.RaiseInputReceived(bracketed);
                             return;
                         }
@@ -274,7 +270,8 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
             var text = item.CoerceToText(Context)?.ToString();
             if (!string.IsNullOrEmpty(text))
             {
-                var bracketed = "\x1b[200~" + text + "\x1b[201~";
+                var safeText = SanitizePasteContent(text);
+                var bracketed = "\x1b[200~" + safeText + "\x1b[201~";
                 _termView?.RaiseInputReceived(bracketed);
             }
         }
@@ -282,6 +279,17 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
         {
             System.Diagnostics.Debug.WriteLine($"Paste error: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Strips bracketed paste delimiters from content to prevent escape injection.
+    /// A malicious clipboard containing \x1b[201~ could break out of bracketed paste mode.
+    /// </summary>
+    private static string SanitizePasteContent(string content)
+    {
+        return content
+            .Replace("\x1b[200~", "")
+            .Replace("\x1b[201~", "");
     }
 
     /// <summary>

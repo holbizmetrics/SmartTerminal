@@ -43,6 +43,7 @@ public class PtyService : IPtyService, IDisposable
     private Task? _waitTask;
     private bool _disposed;
     private bool _nativeAvailable = true;
+    private Decoder? _utf8Decoder;
 
     /// <summary>Whether the native PTY library was found. False after DllNotFoundException.</summary>
     public bool NativeAvailable => _nativeAvailable;
@@ -131,6 +132,9 @@ public class PtyService : IPtyService, IDisposable
     private void ReadLoop(CancellationToken ct)
     {
         var buffer = new byte[8192];
+        // Decoder maintains state across reads to handle split multi-byte UTF-8 chars
+        _utf8Decoder = Encoding.UTF8.GetDecoder();
+        var charBuffer = new char[Encoding.UTF8.GetMaxCharCount(buffer.Length)];
 
         try
         {
@@ -144,7 +148,8 @@ public class PtyService : IPtyService, IDisposable
                     break;
                 }
 
-                var text = Encoding.UTF8.GetString(buffer, 0, bytesRead);
+                int charCount = _utf8Decoder.GetChars(buffer, 0, bytesRead, charBuffer, 0);
+                var text = new string(charBuffer, 0, charCount);
                 OutputReceived?.Invoke(text);
             }
         }
