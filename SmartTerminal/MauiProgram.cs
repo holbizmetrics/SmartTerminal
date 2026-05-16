@@ -24,8 +24,9 @@ public static class MauiProgram
 
         // Register services
         builder.Services.AddSingleton<IPtyService, PtyService>(); // backward compat: single-tab
-        builder.Services.AddSingleton<IPtyServiceFactory, PtyServiceFactory>(); // multi-tab ready
+        builder.Services.AddSingleton<IPtyServiceFactory, PtyServiceFactory>(); // multi-tab
         builder.Services.AddTransient<TerminalPage>();
+        builder.Services.AddTransient<TabbedTerminalPage>();
 
         return builder.Build();
     }

@@ -4,16 +4,16 @@ namespace SmartTerminal;
 
 public class App : Application
 {
-    private readonly TerminalPage _terminalPage;
+    private readonly TabbedTerminalPage _tabbedPage;
 
-    public App(TerminalPage terminalPage)
+    public App(TabbedTerminalPage tabbedPage)
     {
-        _terminalPage = terminalPage;
+        _tabbedPage = tabbedPage;
     }
 
     protected override Window CreateWindow(IActivationState? activationState)
     {
-        // No NavigationPage — it adds a nav bar/hamburger that covers terminal content
-        return new Window(_terminalPage);
+        // Multi-tab terminal — no NavigationPage wrapper
+        return new Window(_tabbedPage);
     }
 }
