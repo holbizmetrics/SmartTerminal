@@ -30,6 +30,9 @@
     <!-- marked.js for Markdown rendering (bundled) -->
     <script src="vendor/marked/marked.min.js"></script>
 
+    <!-- mermaid.js for diagram rendering via OSC 1338 (bundled) -->
+    <script src="vendor/mermaid/mermaid.min.js"></script>
+
     <style>
         :root {
             --katex-fg: #e0e0e0;
@@ -202,6 +205,26 @@
 
         /* KaTeX inside Markdown */
         .markdown-overlay .katex { color: var(--katex-fg); }
+
+        /* OSC 1338 media overlays */
+        .media-overlay {
+            position: relative;
+            display: block;
+            padding: 8px 12px;
+            border-radius: 4px;
+            background: var(--katex-bg);
+            color: var(--katex-fg);
+            max-width: 80ch;
+            cursor: pointer;
+            user-select: text;
+            border-left: 3px solid #c77dba;
+            transition: outline 0.2s;
+        }
+        .media-overlay.copied { outline: 2px solid #c77dba; }
+        .media-overlay svg { max-width: 100%; height: auto; display: block; margin: 0 auto; }
+        .media-overlay img { max-width: 100%; height: auto; display: block; margin: 0 auto; border-radius: 3px; }
+        .media-overlay audio { width: 100%; margin: 0; }
+        .mermaid-overlay { /* alias for clarity in DOM inspection */ }
     </style>
 </head>
 <body>
@@ -379,6 +402,39 @@
             // Sync theme colors to CSS custom properties
             updateKatexTheme();
 
+            // Initialize mermaid (used by OSC 1338 type=mermaid)
+            if (typeof mermaid !== 'undefined') {
+                try {
+                    mermaid.initialize({
+                        startOnLoad: false,
+                        theme: 'dark',
+                        themeVariables: {
+                            primaryColor: '#c77dba',
+                            primaryTextColor: '#e0e0e0',
+                            primaryBorderColor: '#53b3cb',
+                            lineColor: '#e0e0e0',
+                            secondaryColor: '#0f3460',
+                            tertiaryColor: '#16213e',
+                            background: '#1a1a2e',
+                            mainBkg: '#16213e',
+                            nodeBorder: '#53b3cb',
+                            clusterBkg: '#0f3460',
+                            titleColor: '#e9c46a',
+                            edgeLabelBackground: '#1a1a2e',
+                        },
+                        fontFamily: 'CascadiaMono, monospace',
+                        securityLevel: 'strict',
+                    });
+                } catch (e) {
+                    console.warn('Mermaid init failed:', e);
+                }
+            }
+
+            // Register OSC 1338 handler for inline media (mermaid, svg, audio, image)
+            term.parser.registerOscHandler(1338, function(data) {
+                return handleOsc1338(data);
+            });
+
             // Register OSC 1337 handler for LaTeX and Markdown
             term.parser.registerOscHandler(1337, function(data) {
                 var params = {};
@@ -416,9 +472,9 @@
 
             // Click-to-copy on rich overlays
             document.addEventListener('click', function(e) {
-                var overlay = e.target.closest('.katex-overlay, .markdown-overlay');
+                var overlay = e.target.closest('.katex-overlay, .markdown-overlay, .media-overlay');
                 if (!overlay) return;
-                var source = overlay.dataset.latexSource || overlay.dataset.markdownSource;
+                var source = overlay.dataset.latexSource || overlay.dataset.markdownSource || overlay.dataset.mediaSource;
                 if (source) {
                     copyToClipboard(source).then(function() {
                         overlay.classList.add('copied');
@@ -662,6 +718,172 @@
 
                 node.parentNode.replaceChild(frag, node);
             });
+        }
+
+        // --- OSC 1338: inline media (mermaid, svg, audio, image) ---
+
+        var OSC1338_LIMITS = { mermaid: 65536, svg: 262144, audio: 4194304, image: 2097152 };
+        var mermaidCounter = 0;
+
+        function handleOsc1338(data) {
+            var params = {};
+            data.split(';').forEach(function(part) {
+                var eq = part.indexOf('=');
+                if (eq !== -1) {
+                    params[part.substring(0, eq).trim()] = part.substring(eq + 1);
+                }
+            });
+
+            var type = params.type;
+            var b64 = params.data;
+            if (!type || !b64) return false;
+
+            var limit = OSC1338_LIMITS[type];
+            if (limit === undefined) {
+                console.warn('SmartTerminal OSC 1338: unknown type:', type);
+                return true;
+            }
+            // base64 length is ~4/3 of raw byte length
+            if (b64.length > Math.ceil(limit * 4 / 3) + 4) {
+                console.warn('SmartTerminal OSC 1338: payload too large for type=' + type);
+                return true;
+            }
+
+            try {
+                switch (type) {
+                    case 'mermaid':
+                        renderMermaidAtCursor(atob(b64));
+                        break;
+                    case 'svg':
+                        renderSvgAtCursor(atob(b64));
+                        break;
+                    case 'audio':
+                        renderAudioAtCursor(b64, params.mime || 'audio/mpeg');
+                        break;
+                    case 'image':
+                        renderImageAtCursor(b64, params.mime || 'image/png', params.width, params.height);
+                        break;
+                }
+            } catch (e) {
+                console.error('SmartTerminal OSC 1338 error:', e);
+            }
+
+            return true;
+        }
+
+        function sanitizeSvgElement(svgEl) {
+            svgEl.querySelectorAll('script').forEach(function(el) { el.remove(); });
+            svgEl.querySelectorAll('*').forEach(function(el) {
+                Array.from(el.attributes).forEach(function(attr) {
+                    var n = attr.name.toLowerCase();
+                    var v = attr.value.trim().toLowerCase();
+                    if (n.indexOf('on') === 0) el.removeAttribute(attr.name);
+                    if ((n === 'href' || n === 'xlink:href') && v.indexOf('javascript:') === 0) {
+                        el.removeAttribute(attr.name);
+                    }
+                });
+            });
+        }
+
+        function createMediaOverlay(sourceForCopy) {
+            var element = document.createElement('div');
+            element.className = 'media-overlay';
+            if (sourceForCopy) element.dataset.mediaSource = sourceForCopy;
+            return element;
+        }
+
+        function attachMediaOverlay(element, lineHeightEstimate, mediaType) {
+            var marker = term.registerMarker(0);
+            if (!marker) { console.error('OSC 1338: marker failed'); return; }
+            var decoration = term.registerDecoration({
+                marker: marker, x: 0, width: 1,
+                height: Math.max(3, lineHeightEstimate || 3)
+            });
+            if (!decoration) { console.error('OSC 1338: decoration failed'); return; }
+            decoration.onRender(function(el) {
+                if (el.children.length === 0) {
+                    el.appendChild(element);
+                    el.style.overflow = 'visible';
+                    el.style.zIndex = '10';
+                    el.style.width = 'auto';
+                    el.style.height = 'auto';
+                    el.style.pointerEvents = 'auto';
+                }
+            });
+            decoration.onDispose(function() { richOverlays.delete(marker.id); });
+            richOverlays.set(marker.id, {
+                element: element, marker: marker, decoration: decoration,
+                source: element.dataset.mediaSource, type: mediaType || 'media'
+            });
+        }
+
+        function renderMermaidAtCursor(src) {
+            var element = createMediaOverlay(src);
+            element.classList.add('mermaid-overlay');
+            if (typeof mermaid === 'undefined') {
+                element.textContent = '[mermaid not loaded]';
+                element.style.color = term.options.theme.red || '#e94560';
+                attachMediaOverlay(element, 1, 'mermaid');
+                return;
+            }
+            mermaidCounter++;
+            var id = 'st-mermaid-' + mermaidCounter;
+            try {
+                mermaid.render(id, src).then(function(result) {
+                    var temp = document.createElement('div');
+                    temp.innerHTML = result.svg;
+                    var svg = temp.querySelector('svg');
+                    if (svg) {
+                        sanitizeSvgElement(svg);
+                        element.appendChild(svg);
+                    } else {
+                        element.textContent = '[mermaid: no SVG produced]';
+                    }
+                }).catch(function(e) {
+                    element.textContent = 'Mermaid error: ' + (e && e.message ? e.message : e);
+                    element.style.color = term.options.theme.red || '#e94560';
+                });
+            } catch (e) {
+                element.textContent = 'Mermaid error: ' + e.message;
+                element.style.color = term.options.theme.red || '#e94560';
+            }
+            attachMediaOverlay(element, Math.max(6, Math.ceil(src.split('\n').length * 1.2)), 'mermaid');
+        }
+
+        function renderSvgAtCursor(svgXml) {
+            var element = createMediaOverlay(svgXml);
+            var temp = document.createElement('div');
+            temp.innerHTML = svgXml;
+            var svg = temp.querySelector('svg');
+            if (svg) {
+                sanitizeSvgElement(svg);
+                element.appendChild(svg);
+            } else {
+                element.textContent = '[invalid SVG payload]';
+                element.style.color = term.options.theme.red || '#e94560';
+            }
+            attachMediaOverlay(element, 6, 'svg');
+        }
+
+        function renderAudioAtCursor(b64Data, mime) {
+            var dataUrl = 'data:' + mime + ';base64,' + b64Data;
+            var element = createMediaOverlay(dataUrl);
+            var audio = document.createElement('audio');
+            audio.controls = true;
+            audio.src = dataUrl;
+            element.appendChild(audio);
+            attachMediaOverlay(element, 2, 'audio');
+        }
+
+        function renderImageAtCursor(b64Data, mime, width, height) {
+            var dataUrl = 'data:' + mime + ';base64,' + b64Data;
+            var element = createMediaOverlay(dataUrl);
+            var img = document.createElement('img');
+            img.src = dataUrl;
+            if (width) img.style.maxWidth = width + 'px';
+            if (height) img.style.maxHeight = height + 'px';
+            element.appendChild(img);
+            attachMediaOverlay(element, 6, 'image');
         }
 
         function updateKatexTheme() {

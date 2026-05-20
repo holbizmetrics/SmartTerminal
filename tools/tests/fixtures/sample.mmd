@@ -1,0 +1,10 @@
+graph TD
+  Start([User runs tcat]) --> Read[Read file bytes]
+  Read --> Detect{Type known?}
+  Detect -->|yes| Encode[Base64 encode]
+  Detect -->|no| Err1[Exit 2: unknown extension]
+  Encode --> Check{Within size limit?}
+  Check -->|yes| Emit[Emit OSC 1338]
+  Check -->|no| Err2[Exit 1: exceeds limit]
+  Emit --> SmartTerm[SmartTerminal renders inline]
+  Emit --> Other[Other terminals strip silently]
