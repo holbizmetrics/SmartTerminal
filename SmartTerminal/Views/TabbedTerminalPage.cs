@@ -131,11 +131,46 @@ public class TabbedTerminalPage : ContentPage
         // Insert before the "+" button
         _tabBar.Insert(_tabBar.Count - 1, tabButton);
 
+        // Per-tab line buffer for the no-TTY case (pipe shell / no shell). A real
+        // PTY does its own echo + line discipline, so we bypass this for it.
+        var lineBuf = new System.Text.StringBuilder();
+
         // Wire terminal ↔ PTY
         terminal.InputReceived += async (data) =>
         {
-            if (pty.IsRunning)
+            // Real PTY (cooked mode) echoes + line-edits itself — just forward.
+            if (pty.IsRunning && pty.EchoesInput)
+            {
                 await pty.WriteAsync(data);
+                return;
+            }
+
+            // Pipe shell or no shell: the app provides echo + line editing.
+            // Echo so text persists; on Enter, send the assembled line to the
+            // shell (if any); handle backspace against the buffer.
+            foreach (var c in data)
+            {
+                if (c == '\r' || c == '\n')
+                {
+                    terminal.WriteOutput?.Invoke("\r\n");
+                    if (pty.IsRunning)
+                        await pty.WriteAsync(lineBuf.ToString() + "\n");
+                    lineBuf.Clear();
+                }
+                else if (c == '\x7f' || c == '\b')
+                {
+                    if (lineBuf.Length > 0)
+                    {
+                        lineBuf.Length--;
+                        terminal.WriteOutput?.Invoke("\b \b");
+                    }
+                }
+                else
+                {
+                    lineBuf.Append(c);
+                    terminal.WriteOutput?.Invoke(c.ToString());
+                }
+            }
         };
 
         terminal.SizeChanged += (cols, rows) =>

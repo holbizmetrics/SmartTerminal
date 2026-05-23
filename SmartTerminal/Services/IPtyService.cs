@@ -27,6 +27,12 @@ public interface IPtyService
     /// <summary>Whether the native PTY library is available. False if libpty.so is missing.</summary>
     bool NativeAvailable { get; }
 
+    /// <summary>
+    /// True if the shell echoes typed input itself (a real PTY in cooked mode does).
+    /// False for pipe-based shells with no TTY — the UI must echo input locally.
+    /// </summary>
+    bool EchoesInput { get; }
+
     /// <summary>Fired when the shell produces output (stdout + stderr merged, as real terminals do).</summary>
     event Action<string>? OutputReceived;
 

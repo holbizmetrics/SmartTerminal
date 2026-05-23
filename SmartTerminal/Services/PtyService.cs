@@ -49,6 +49,9 @@ public class PtyService : IPtyService, IDisposable
     /// <summary>Whether the native PTY library was found. False after DllNotFoundException.</summary>
     public bool NativeAvailable => _nativeAvailable;
 
+    // A real PTY runs in cooked mode and echoes input itself.
+    public bool EchoesInput => true;
+
     public bool IsRunning => _pid > 0 && _masterFd >= 0;
 
     public event Action<string>? OutputReceived;

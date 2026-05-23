@@ -31,7 +31,9 @@ public class PtyServiceFactory : IPtyServiceFactory, IDisposable
 
     public IPtyService Create()
     {
-        var pty = new PtyService();
+        // Pipe-based shell: managed process, no NDK/libpty. Runs commands + output.
+        // Swap to `new PtyService()` once libpty.so is built for a full PTY.
+        IPtyService pty = new PipeShellService();
 
         lock (_lock)
         {
