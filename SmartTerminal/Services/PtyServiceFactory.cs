@@ -31,9 +31,9 @@ public class PtyServiceFactory : IPtyServiceFactory, IDisposable
 
     public IPtyService Create()
     {
-        // Pipe-based shell: managed process, no NDK/libpty. Runs commands + output.
-        // Swap to `new PtyService()` once libpty.so is built for a full PTY.
-        IPtyService pty = new PipeShellService();
+        // Real PTY via libpty.so (full TTY: raw mode, isatty, resize → interactive TUIs).
+        // Falls back to the managed pipe shell if the native lib didn't load.
+        IPtyService pty = new PtyService();
 
         lock (_lock)
         {
