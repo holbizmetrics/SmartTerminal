@@ -30,3 +30,6 @@ local.properties
 # OS
 .DS_Store
 Thumbs.db
+
+# Debug screenshots
+st_*.png

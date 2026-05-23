@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# tcat-demo — emit one of each OSC 1338 media type for a visual smoke test.
+# Run this INSIDE SmartTerminal to verify inline rendering end-to-end.
+#
+# Usage: ./tcat-demo            (uses bundled fixtures)
+#        TCAT=python ./tcat-demo  (force python invocation of tcat)
+set -e
+
+HERE="$(cd "$(dirname "$0")" && pwd)"
+FIX="$HERE/tests/fixtures"
+TCAT_BIN="${TCAT:-$HERE/tcat}"
+
+run() { "$TCAT_BIN" "$@" 2>/dev/null || python "$HERE/tcat" "$@"; }
+
+printf '\n=== OSC 1338 demo ===\n\n'
+
+printf '[1/4] mermaid flowchart:\n'
+run "$FIX/sample.mmd"
+printf '\n\n[2/4] inline SVG:\n'
+run "$FIX/sample.svg"
+printf '\n\n[3/4] image (PNG):\n'
+run "$FIX/sample.png"
+printf '\n\n[4/4] audio (WAV):\n'
+run "$FIX/sample.wav"
+printf '\n\n=== done — 4 media types emitted ===\n'

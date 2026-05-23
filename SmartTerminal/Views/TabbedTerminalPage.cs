@@ -148,7 +148,8 @@ public class TabbedTerminalPage : ContentPage
         {
             var shell = FindShell();
             terminal.WriteOutput?.Invoke(
-                $"\x1b[36m{title}\x1b[0m — {shell}\r\n\r\n");
+                $"\x1b[36m{title}\x1b[0m — {shell}\r\n" +
+                "\x1b[90mInline media: tcat <file.mmd|svg|png|mp3> (OSC 1338)\x1b[0m\r\n\r\n");
             await pty.StartAsync(shell, rows, cols);
         };
 

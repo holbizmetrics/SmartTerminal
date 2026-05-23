@@ -26,12 +26,38 @@ namespace SmartTerminal.Platforms.Android.Handlers;
 /// to xterm.js via EvaluateJavascript, which then sends it through the normal
 /// xterm.js → C# → PTY pipeline.
 /// </summary>
+/// <summary>
+/// FrameLayout that re-measures its children against its own laid-out size.
+/// MAUI arranges a custom handler's platform view by calling Layout() directly,
+/// without an Android measure pass — so MatchParent children (the WebView) never
+/// get measured against the real size and collapse to 0x0. Forcing MeasureChildren
+/// in OnLayout makes them fill correctly.
+/// </summary>
+internal sealed class TerminalFrameLayout : FrameLayout
+{
+    public TerminalFrameLayout(Context context) : base(context) { }
+
+    protected override void OnLayout(bool changed, int left, int top, int right, int bottom)
+    {
+        var w = right - left;
+        var h = bottom - top;
+        if (w > 0 && h > 0)
+        {
+            MeasureChildren(
+                MeasureSpec.MakeMeasureSpec(w, MeasureSpecMode.Exactly),
+                MeasureSpec.MakeMeasureSpec(h, MeasureSpecMode.Exactly));
+        }
+        base.OnLayout(changed, left, top, right, bottom);
+    }
+}
+
 public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
 {
     private WebView? _webView;
     private SmartInputEditText? _inputOverlay;
     private ExtraKeysBar? _extraKeysBar;
     private SmartTerminalView? _termView;
+    private bool _htmlLoaded;
 
 	public static IPropertyMapper<SmartTerminalView, SmartTerminalHandler> Mapper =
 		new PropertyMapper<SmartTerminalView, SmartTerminalHandler>(ViewMapper);
@@ -42,7 +68,7 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
     {
         var context = Context!;
         var density = context.Resources!.DisplayMetrics!.Density;
-        var frame = new FrameLayout(context);
+        var frame = new TerminalFrameLayout(context);
 
         var extraKeysHeight = (int)(42 * density);
 
@@ -107,6 +133,18 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
         return frame;
     }
 
+    // A WebView-backed terminal wants ALL available space, but a bare custom MAUI
+    // View is sized to its DESIRED height — which collapses (the WebView child is
+    // MatchParent and contributes nothing to desired size). Fill when the
+    // constraint is finite; never collapse to 0 on an infinite constraint (fall
+    // back to base measurement). Logged so we can see what MAUI actually passes.
+    public override Size GetDesiredSize(double widthConstraint, double heightConstraint)
+    {
+        if (!double.IsInfinity(widthConstraint) && !double.IsInfinity(heightConstraint))
+            return new Size(widthConstraint, heightConstraint);
+        return base.GetDesiredSize(widthConstraint, heightConstraint);
+    }
+
     protected override void ConnectHandler(FrameLayout platformView)
     {
         base.ConnectHandler(platformView);
@@ -128,31 +166,25 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
 
     private void OnFirstLayout(object? sender, EventArgs e)
     {
-        if (_webView == null) return;
-
-        // Unsubscribe — only need this once
-        _webView.ViewTreeObserver!.GlobalLayout -= OnFirstLayout;
+        if (_webView == null || _htmlLoaded) return;
 
         var w = _webView.Width;
         var h = _webView.Height;
-        System.Diagnostics.Debug.WriteLine($"[SmartTerminal] WebView laid out: {w}x{h}");
 
+        // Wait until the WebView actually has non-zero dimensions. GlobalLayout
+        // fires repeatedly; load exactly once, when the view is genuinely sized.
+        // (Previously this gave up after a single 200ms retry and loaded at 0x0,
+        // so xterm.js rendered into a zero-height surface — nothing was visible.)
         if (w > 0 && h > 0)
         {
+            _htmlLoaded = true;
+            _webView.ViewTreeObserver!.GlobalLayout -= OnFirstLayout;
             _webView.LoadUrl("file:///android_asset/terminal.html");
             System.Diagnostics.Debug.WriteLine($"[SmartTerminal] Loaded terminal.html at {w}x{h}");
         }
         else
         {
-            System.Diagnostics.Debug.WriteLine("[SmartTerminal] WebView has zero dimensions, retrying...");
-            _webView.PostDelayed(() =>
-            {
-                if (_webView == null) return;
-                var w2 = _webView.Width;
-                var h2 = _webView.Height;
-                System.Diagnostics.Debug.WriteLine($"[SmartTerminal] WebView delayed: {w2}x{h2}");
-                _webView.LoadUrl("file:///android_asset/terminal.html");
-            }, 200);
+            System.Diagnostics.Debug.WriteLine($"[SmartTerminal] WebView not yet sized: {w}x{h}, waiting...");
         }
     }
 
@@ -163,6 +195,7 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
         _webView = null;
         _inputOverlay = null;
         _extraKeysBar = null;
+        _htmlLoaded = false;
         base.DisconnectHandler(platformView);
     }
 

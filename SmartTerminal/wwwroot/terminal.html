@@ -352,7 +352,9 @@
         function termWrite(base64Data) {
             if (!term) return;
             try {
-                const text = atob(base64Data);
+                // Decode base64 as UTF-8 (atob alone yields Latin-1, mangling
+                // multi-byte chars like em-dash, arrows, emoji, non-Latin scripts).
+                const text = decodeURIComponent(escape(atob(base64Data)));
                 term.write(text);
             } catch (e) {
                 console.error('termWrite error:', e);
@@ -921,7 +923,7 @@
         function termPaste(base64Data) {
             if (!term) return;
             try {
-                var text = atob(base64Data);
+                var text = decodeURIComponent(escape(atob(base64Data)));
                 // Bracket the paste for apps that support it
                 term.paste(text);
             } catch (e) {
