@@ -114,6 +114,22 @@ genuinely needs POSIX-everywhere.
 
 ## Decision log
 
+- **2026-07-03 — Route A (repackage Termux Node) PROBE-VERIFIED on emulator (x86_64, API 36).**
+  Termux's `nodejs` 26.3.1 + its 7 dep packages, unpacked from `.deb`s, pushed to
+  `/data/local/tmp`, run with `LD_LIBRARY_PATH` pointing at the flat lib dir:
+  `node --version`, eval, and a full HTTPS `fetch` to api.anthropic.com all pass
+  (DNS/TCP/TLS verified; Node uses its compiled-in Mozilla CA store — no Termux cert
+  path involved). Findings: (a) the binary needs versioned sonames (`libz.so.1`,
+  `libcrypto.so.3`, `libssl.so.3`, `libsqlite3.so.0`, `libicu*.so.78`) — APKs only
+  bundle `lib*.so` names, so create these as first-run symlinks in an app-data dir on
+  `LD_LIBRARY_PATH` (same `Os.symlink` mechanism as the planned `bin/node` symlink);
+  (b) nodejs-mobile REJECTED (fork stale at Node 18 EOL, JNI-embed shape doesn't fit
+  PTY-spawned CLIs); (c) own static build stays fallback-only. Residual: probe ran in
+  the `shell` SELinux domain — the same layout inside the APK (`untrusted_app` +
+  `nativeLibraryDir`) is the next gate. Also: any freshly compiled `.so` (incl. a
+  libpty rebuild) should add `-Wl,-z,max-page-size=16384` — Android 16 wants 16 KB
+  pages (build warns XA0141 on the current libpty.so).
+
 - **2026-05-23 — proot demoted (settled).** Original plan led with proot + a Linux
   rootfs for Node. A fresh-context architecture review corrected this: static-Node-as-
   `.so` + frozen `node_modules` is the better local path; proot is off the menu. Content-
