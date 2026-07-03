@@ -22,6 +22,9 @@ public static class MauiProgram
 #endif
             });
 
+        // Wire bundled Node runtime env (PATH/LD_LIBRARY_PATH/HOME) before any PTY spawns.
+        NodeRuntimeService.Setup();
+
         // Register services
         builder.Services.AddSingleton<IPtyService, PtyService>(); // backward compat: single-tab
         builder.Services.AddSingleton<IPtyServiceFactory, PtyServiceFactory>(); // multi-tab

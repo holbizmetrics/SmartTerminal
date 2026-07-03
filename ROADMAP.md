@@ -114,6 +114,17 @@ genuinely needs POSIX-everywhere.
 
 ## Decision log
 
+- **2026-07-03 — Node runtime IN-APP VERIFIED (untrusted_app domain): gap #1 + #3 CLOSED.**
+  `NodeRuntimeService` + `Native/node/fetch-node-libs.sh` (payloads gitignored, 93 MB/ABI,
+  csproj bundles when present — same Exists() pattern as libpty). Logcat proof on emulator:
+  `node self-test OK: v26.3.1`, spawned by the app itself from `nativeLibraryDir` via
+  first-run symlinks in `filesDir` (`bin/node`, versioned sonames). Env lesson: set BOTH
+  environs — `Os.Setenv` (native, feeds forkpty/PTY children) AND
+  `Environment.SetEnvironmentVariable` (managed, feeds `Process` children); they don't sync,
+  and the first in-app run failed on exactly that. Remaining for Tier 3: frozen
+  `node_modules` of Claude Code (incl. vendored-ripgrep exec workaround) + on-device
+  ARM64 run + typing `node` in the actual terminal UI.
+
 - **2026-07-03 — Route A (repackage Termux Node) PROBE-VERIFIED on emulator (x86_64, API 36).**
   Termux's `nodejs` 26.3.1 + its 7 dep packages, unpacked from `.deb`s, pushed to
   `/data/local/tmp`, run with `LD_LIBRARY_PATH` pointing at the flat lib dir:

@@ -38,6 +38,15 @@
     <AndroidNativeLibrary Include="Native\libs\x86_64\libpty.so" Abi="x86_64" />
   </ItemGroup>
 
+  <!-- Bundled Node.js runtime (repackaged Termux build) — fetched by Native/node/fetch-node-libs.sh,
+       NOT committed (93 MB/ABI). Graceful degrade: absent libs = node runtime disabled, app still works. -->
+  <ItemGroup Condition="Exists('Native\node\arm64-v8a\libnode.so')">
+    <AndroidNativeLibrary Include="Native\node\arm64-v8a\*.so" Abi="arm64-v8a" />
+  </ItemGroup>
+  <ItemGroup Condition="Exists('Native\node\x86_64\libnode.so')">
+    <AndroidNativeLibrary Include="Native\node\x86_64\*.so" Abi="x86_64" />
+  </ItemGroup>
+
   <ItemGroup>
 	<PackageReference Include="Microsoft.Maui.Controls" Version="10.0.20" />
   </ItemGroup>
