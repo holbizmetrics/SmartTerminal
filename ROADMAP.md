@@ -114,6 +114,21 @@ genuinely needs POSIX-everywhere.
 
 ## Decision log
 
+- **2026-07-03 — Tier-3 plan REWRITTEN: Claude Code now ships as native binaries; musl-loader
+  route PROBE-VERIFIED on emulator.** Since ~v2.x, `@anthropic-ai/claude-code` is a thin wrapper
+  around platform-specific compiled single binaries (optionalDependencies) — the May-era
+  "frozen node_modules + Node runs cli.js" plan is obsolete. The good variant exists:
+  `@anthropic-ai/claude-code-linux-{arm64,x64}-musl`. The binary is dynamic against musl only
+  (`PT_INTERP /lib/ld-musl-*.so.1`, DT_NEEDED = musl libc alone), and musl's loader can be
+  exec'd directly with the target as argv[1]. Probe: Alpine `ld-musl-x86_64.so.1` (662 KB) +
+  `claude` (246 MB) in /data/local/tmp → `./ld-musl-x86_64.so.1 ./claude --version` →
+  `2.1.200 (Claude Code)`, exit 0. Plan now: ship both as `libmuslld.so` + `libclaude.so`
+  in nativeLibraryDir (exec + PROT_EXEC allowed there), alias `claude` in the shell rc.
+  Node runtime stays as a general terminal capability + provides the env wiring claude needs.
+  Residuals: in-app untrusted_app run owed (same gate shape as Node, passed below);
+  embedded-ripgrep extract-to-tmp-and-exec risk (USE_BUILTIN_RIPGREP=0 + ship rg as lib*.so
+  if it bites); auth flow + TUI rendering = on-device human gates.
+
 - **2026-07-03 — Node runtime IN-APP VERIFIED (untrusted_app domain): gap #1 + #3 CLOSED.**
   `NodeRuntimeService` + `Native/node/fetch-node-libs.sh` (payloads gitignored, 93 MB/ABI,
   csproj bundles when present — same Exists() pattern as libpty). Logcat proof on emulator:
