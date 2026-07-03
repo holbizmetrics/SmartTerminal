@@ -116,9 +116,11 @@ public static class NodeRuntimeService
         }
 
         string rc = Path.Combine(homeDir, ".mkshrc");
-        string alias = $"alias claude='{loader} {claude}'";
-        if (!File.Exists(rc) || !File.ReadAllText(rc).Contains(alias))
-            File.AppendAllText(rc, alias + "\n");
+        // Start interactive shells in HOME — the app's inherited cwd is "/", which
+        // untrusted_app can't even list (the "ls: .: Permission denied" surprise).
+        string rcBody = $"cd \"$HOME\"\nalias claude='{loader} {claude}'\n";
+        if (!File.Exists(rc) || File.ReadAllText(rc) != rcBody)
+            File.WriteAllText(rc, rcBody);
         Android.Systems.Os.Setenv("ENV", rc, true);
         Environment.SetEnvironmentVariable("ENV", rc);
 

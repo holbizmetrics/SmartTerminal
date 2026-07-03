@@ -114,7 +114,19 @@ genuinely needs POSIX-everywhere.
 
 ## Decision log
 
-- **2026-07-03 — Tier-3 plan REWRITTEN: Claude Code now ships as native binaries; musl-loader
+- **2026-07-03 — PHONE (SM-G977B, Android 12): terminal + SwiftKey + PTY + Node ALL VERIFIED;
+  claude blocked by app-domain seccomp — fix identified.** Operator screenshot: SwiftKey
+  predictive input committing words into the real PTY shell (the founding feature, live).
+  Logcat: `node self-test OK: v26.3.1` (ARM64). `claude self-test FAILED: exit=159` = SIGSYS:
+  Android 12's untrusted_app seccomp allowlist KILLS syscalls it doesn't know, where a plain
+  kernel would return ENOSYS — musl/bun probe newer syscalls expecting ENOSYS-fallback.
+  Proof of mechanism: the identical binary pair in /data/local/tmp (shell domain, no app
+  filter) prints `2.1.200 (Claude Code)` exit 0 ON THE SAME PHONE. (API-36 emulator's newer
+  allowlist passes in-app.) NEXT: freestanding aarch64 shim `libsigsys2enosys.so` — SIGSYS
+  handler rewrites the faulting syscall's return to -ENOSYS and resumes; inject via musl
+  loader LD_PRELOAD in the claude alias. Needs NDK (~60-line -nostdlib .so; remember
+  -Wl,-z,max-page-size=16384). Also shipped: shells now start in $HOME via .mkshrc (app cwd
+  "/" is unlistable for untrusted_app). Claude Code now ships as native binaries; musl-loader
   route PROBE-VERIFIED on emulator.** Since ~v2.x, `@anthropic-ai/claude-code` is a thin wrapper
   around platform-specific compiled single binaries (optionalDependencies) — the May-era
   "frozen node_modules + Node runs cli.js" plan is obsolete. The good variant exists:
