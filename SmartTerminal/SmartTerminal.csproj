@@ -47,6 +47,15 @@
     <AndroidNativeLibrary Include="Native\node\x86_64\*.so" Abi="x86_64" />
   </ItemGroup>
 
+  <!-- Claude Code native binary (musl build) + musl loader — fetched by Native/claude/fetch-claude-libs.sh,
+       NOT committed (~240 MB/ABI). Exec'd as: libmuslld.so libclaude.so <args>. Graceful degrade when absent. -->
+  <ItemGroup Condition="Exists('Native\claude\arm64-v8a\libclaude.so')">
+    <AndroidNativeLibrary Include="Native\claude\arm64-v8a\*.so" Abi="arm64-v8a" />
+  </ItemGroup>
+  <ItemGroup Condition="Exists('Native\claude\x86_64\libclaude.so')">
+    <AndroidNativeLibrary Include="Native\claude\x86_64\*.so" Abi="x86_64" />
+  </ItemGroup>
+
   <ItemGroup>
 	<PackageReference Include="Microsoft.Maui.Controls" Version="10.0.20" />
   </ItemGroup>

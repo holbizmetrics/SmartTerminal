@@ -84,6 +84,8 @@ public static class NodeRuntimeService
             }
 
             NodeAvailable = SelfTest(Path.Combine(binDir, "node"));
+
+            SetupClaude(nativeDir, homeDir);
         }
         catch (Exception ex)
         {
@@ -92,6 +94,71 @@ public static class NodeRuntimeService
         }
 #endif
     }
+
+    public static bool ClaudeAvailable { get; private set; }
+
+#if ANDROID
+    /// <summary>
+    /// Claude Code ships as a musl-linked native binary; musl's loader runs it as
+    /// argv[1]. Both live in nativeLibraryDir (exec + PROT_EXEC allowed). The shell
+    /// gets `claude` as an alias via $ENV (mksh reads it for interactive shells) —
+    /// a wrapper *script* would need exec from filesDir, which SELinux denies.
+    /// </summary>
+    private static void SetupClaude(string nativeDir, string homeDir)
+    {
+        string loader = Path.Combine(nativeDir, "libmuslld.so");
+        string claude = Path.Combine(nativeDir, "libclaude.so");
+        if (!File.Exists(loader) || !File.Exists(claude))
+        {
+            Android.Util.Log.Info(Tag, "libclaude.so/libmuslld.so not bundled — claude disabled.");
+            ClaudeAvailable = false;
+            return;
+        }
+
+        string rc = Path.Combine(homeDir, ".mkshrc");
+        string alias = $"alias claude='{loader} {claude}'";
+        if (!File.Exists(rc) || !File.ReadAllText(rc).Contains(alias))
+            File.AppendAllText(rc, alias + "\n");
+        Android.Systems.Os.Setenv("ENV", rc, true);
+        Environment.SetEnvironmentVariable("ENV", rc);
+
+        ClaudeAvailable = ClaudeSelfTest(loader, claude);
+    }
+
+    private static bool ClaudeSelfTest(string loader, string claude)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = loader,
+                Arguments = $"{claude} --version",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            };
+            psi.EnvironmentVariables["HOME"] = Android.Systems.Os.Getenv("HOME") ?? "";
+            psi.EnvironmentVariables["TMPDIR"] = Android.Systems.Os.Getenv("TMPDIR") ?? "";
+            using var p = Process.Start(psi)!;
+            string stdout = p.StandardOutput.ReadToEnd().Trim();
+            string stderr = p.StandardError.ReadToEnd().Trim();
+            p.WaitForExit(30_000);
+
+            if (p.ExitCode == 0 && stdout.Length > 0)
+            {
+                Android.Util.Log.Info(Tag, $"claude self-test OK: {stdout}");
+                return true;
+            }
+            Android.Util.Log.Error(Tag, $"claude self-test FAILED: exit={p.ExitCode} out='{stdout}' err='{stderr}'");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Android.Util.Log.Error(Tag, $"claude self-test EXCEPTION: {ex.Message}");
+            return false;
+        }
+    }
+#endif
 
 #if ANDROID
     private static void EnsureSymlink(string link, string target)
