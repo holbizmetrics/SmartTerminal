@@ -114,6 +114,21 @@ genuinely needs POSIX-everywhere.
 
 ## Decision log
 
+- **2026-07-05 — CLAUDE CODE RUNS ON THE PHONE IN-APP. Tier 3 seccomp blocker CLOSED.**
+  `Native/sigsys/libsigsys2enosys.c` — freestanding aarch64 LD_PRELOAD shim (3 KB, zero
+  DT_NEEDED so it can't collide with the process's musl; built via NDK r27c, `build-sigsys.sh`).
+  Installs a SIGSYS handler that sets x0=-ENOSYS and returns WITHOUT advancing PC (aarch64 ELR
+  already points past the svc). Wired into the claude alias + self-test as LD_PRELOAD (scoped to
+  claude, not node). On SM-G977B/Android 12, in the terminal UI:
+  `sigsys2enosys: converted syscall 436` then `2.1.200 (Claude Code)`. **Syscall 436 = close_range**
+  (NOT clone3 as predicted — vindicates the syscall-agnostic design; close_range is a pure fd-cleanup
+  optimization musl falls back from cleanly, so ENOSYS-substitution is safe). Exactly one syscall
+  converted. logcat self-tests: node v26.3.1 + claude 2.1.200 both OK in untrusted_app.
+  Deploy note: manual `adb install` of a Debug APK crashes ("No assemblies … Fast Deployment") —
+  the managed assemblies deploy separately; use `dotnet build -t:Install` (fast-deploy) OR
+  `-p:EmbedAssembliesIntoApk=true`. Phone install needs ~2 GB free (claude payload is 241 MB;
+  arm64-only build via `-p:AndroidSupportedAbis=arm64-v8a`).
+
 - **2026-07-03 — PHONE (SM-G977B, Android 12): terminal + SwiftKey + PTY + Node ALL VERIFIED;
   claude blocked by app-domain seccomp — fix identified.** Operator screenshot: SwiftKey
   predictive input committing words into the real PTY shell (the founding feature, live).

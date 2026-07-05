@@ -115,19 +115,28 @@ public static class NodeRuntimeService
             return;
         }
 
+        // SIGSYS->ENOSYS shim (see Native/sigsys/): Android's untrusted_app seccomp
+        // SIGSYS-kills clone3 (which musl probes then falls back from). LD_PRELOAD'd
+        // into the musl process, the shim converts those kills back into -ENOSYS so
+        // the fallback works. Scoped to claude only — not set globally — so node
+        // (bionic) is untouched. Absent on the API-36 emulator's looser filter (claude
+        // runs there without it), so this is present-or-degrade like every other lib.
+        string shim = Path.Combine(nativeDir, "libsigsys2enosys.so");
+        string preload = File.Exists(shim) ? $"LD_PRELOAD={shim} " : "";
+
         string rc = Path.Combine(homeDir, ".mkshrc");
         // Start interactive shells in HOME — the app's inherited cwd is "/", which
         // untrusted_app can't even list (the "ls: .: Permission denied" surprise).
-        string rcBody = $"cd \"$HOME\"\nalias claude='{loader} {claude}'\n";
+        string rcBody = $"cd \"$HOME\"\nalias claude='{preload}{loader} {claude}'\n";
         if (!File.Exists(rc) || File.ReadAllText(rc) != rcBody)
             File.WriteAllText(rc, rcBody);
         Android.Systems.Os.Setenv("ENV", rc, true);
         Environment.SetEnvironmentVariable("ENV", rc);
 
-        ClaudeAvailable = ClaudeSelfTest(loader, claude);
+        ClaudeAvailable = ClaudeSelfTest(loader, claude, File.Exists(shim) ? shim : null);
     }
 
-    private static bool ClaudeSelfTest(string loader, string claude)
+    private static bool ClaudeSelfTest(string loader, string claude, string? shim)
     {
         try
         {
@@ -141,6 +150,8 @@ public static class NodeRuntimeService
             };
             psi.EnvironmentVariables["HOME"] = Android.Systems.Os.Getenv("HOME") ?? "";
             psi.EnvironmentVariables["TMPDIR"] = Android.Systems.Os.Getenv("TMPDIR") ?? "";
+            if (shim != null)
+                psi.EnvironmentVariables["LD_PRELOAD"] = shim;
             using var p = Process.Start(psi)!;
             string stdout = p.StandardOutput.ReadToEnd().Trim();
             string stderr = p.StandardError.ReadToEnd().Trim();
