@@ -54,6 +54,14 @@
     <AndroidNativeLibrary Include="Native\node\x86_64\*.so" Abi="x86_64" />
   </ItemGroup>
 
+  <!-- Browser opener: claude's cli.js runs `$BROWSER <url>` to open OAuth login; on Android it
+       otherwise falls back to xdg-open (absent) and fails. This tiny exec (in nativeLibraryDir,
+       the only exec-allowed dir) hands the URL to `am start` -> system browser. Built by
+       Native/browser-opener/build.sh; .so gitignored. See ROADMAP 2026-07-05. -->
+  <ItemGroup Condition="Exists('Native\browser-opener\arm64-v8a\libbrowseropener.so')">
+    <AndroidNativeLibrary Include="Native\browser-opener\arm64-v8a\libbrowseropener.so" Abi="arm64-v8a" />
+  </ItemGroup>
+
   <!-- FALLBACK PATH (opt-in, off by default): Claude Code native musl binary + musl loader + SIGSYS
        shim. Superseded by the 2.1.112 pure-JS path above (which fixes DNS and needs no musl/shim).
        Enable with -p:BundleMuslClaude=true. ~240 MB/ABI. See ROADMAP 2026-07-05 decision log. -->

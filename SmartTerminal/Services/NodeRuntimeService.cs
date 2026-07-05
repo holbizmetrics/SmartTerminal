@@ -86,7 +86,7 @@ public static class NodeRuntimeService
 
             NodeAvailable = SelfTest(Path.Combine(binDir, "node"));
 
-            SetupClaude(filesDir, homeDir);
+            SetupClaude(filesDir, homeDir, nativeDir);
         }
         catch (Exception ex)
         {
@@ -107,7 +107,7 @@ public static class NodeRuntimeService
     /// cli.js ships as a MauiAsset (claude-js.zip), extracted to filesDir on first run.
     /// (The musl-binary + shim path is the documented fallback; see ROADMAP 2026-07-05.)
     /// </summary>
-    private static void SetupClaude(string filesDir, string homeDir)
+    private static void SetupClaude(string filesDir, string homeDir, string nativeDir)
     {
         if (!NodeAvailable)
         {
@@ -126,11 +126,18 @@ public static class NodeRuntimeService
             return;
         }
 
+        // BROWSER opener: claude's cli.js opens the OAuth login via `$BROWSER <url>`, else
+        // xdg-open (absent on Android -> "Browser didn't open"). Point it at our native opener
+        // (in nativeLibraryDir, exec-allowed), which hands the URL to `am start` -> system
+        // browser. Kills the copy-paste-the-login-link problem. Only set if the lib is present.
+        string opener = Path.Combine(nativeDir, "libbrowseropener.so");
+        string browserEnv = File.Exists(opener) ? $"BROWSER={opener} " : "";
+
         string rc = Path.Combine(homeDir, ".mkshrc");
         // Start in HOME (app cwd "/" is unlistable for untrusted_app). USE_BUILTIN_RIPGREP=0:
         // the vendored rg can't exec from filesDir (SELinux W^X) — search degrades until rg
         // ships as a native lib (ROADMAP task). claude = node cli.js on the bionic runtime.
-        string rcBody = $"cd \"$HOME\"\nalias claude='USE_BUILTIN_RIPGREP=0 {nodePath} {cliJs}'\n";
+        string rcBody = $"cd \"$HOME\"\nalias claude='USE_BUILTIN_RIPGREP=0 {browserEnv}{nodePath} {cliJs}'\n";
         if (!File.Exists(rc) || File.ReadAllText(rc) != rcBody)
             File.WriteAllText(rc, rcBody);
         Android.Systems.Os.Setenv("ENV", rc, true);

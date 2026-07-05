@@ -1,0 +1,2 @@
+# Built .so is gitignored; source + build.sh are committed.
+*/
