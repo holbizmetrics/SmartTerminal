@@ -30,6 +30,13 @@
     <MauiAsset Include="wwwroot\**" LogicalName="%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
+  <!-- Claude Code 2.1.112 pure-JS runtime (last version before the native-binary "thin client").
+       Runs cli.js on the bundled bionic Node -> DNS works, no musl, no seccomp shim.
+       Fetched by claude-js/fetch-claude-js.sh (NOT committed, ~6 MB zip). -->
+  <ItemGroup Condition="Exists('claude-js\claude-js.zip')">
+    <MauiAsset Include="claude-js\claude-js.zip" LogicalName="claude-js.zip" />
+  </ItemGroup>
+
   <!-- Native PTY library — built by Native/build_native.sh via Android NDK -->
   <!-- To build locally, run build_native.sh with ANDROID_NDK_HOME set -->
   <ItemGroup Condition="Exists('Native\libs\arm64-v8a\libpty.so')">
@@ -47,12 +54,13 @@
     <AndroidNativeLibrary Include="Native\node\x86_64\*.so" Abi="x86_64" />
   </ItemGroup>
 
-  <!-- Claude Code native binary (musl build) + musl loader — fetched by Native/claude/fetch-claude-libs.sh,
-       NOT committed (~240 MB/ABI). Exec'd as: libmuslld.so libclaude.so <args>. Graceful degrade when absent. -->
-  <ItemGroup Condition="Exists('Native\claude\arm64-v8a\libclaude.so')">
+  <!-- FALLBACK PATH (opt-in, off by default): Claude Code native musl binary + musl loader + SIGSYS
+       shim. Superseded by the 2.1.112 pure-JS path above (which fixes DNS and needs no musl/shim).
+       Enable with -p:BundleMuslClaude=true. ~240 MB/ABI. See ROADMAP 2026-07-05 decision log. -->
+  <ItemGroup Condition="'$(BundleMuslClaude)' == 'true' And Exists('Native\claude\arm64-v8a\libclaude.so')">
     <AndroidNativeLibrary Include="Native\claude\arm64-v8a\*.so" Abi="arm64-v8a" />
   </ItemGroup>
-  <ItemGroup Condition="Exists('Native\claude\x86_64\libclaude.so')">
+  <ItemGroup Condition="'$(BundleMuslClaude)' == 'true' And Exists('Native\claude\x86_64\libclaude.so')">
     <AndroidNativeLibrary Include="Native\claude\x86_64\*.so" Abi="x86_64" />
   </ItemGroup>
 

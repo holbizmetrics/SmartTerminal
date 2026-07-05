@@ -114,6 +114,29 @@ genuinely needs POSIX-everywhere.
 
 ## Decision log
 
+- **2026-07-05 — DNS wall hit + BETTER PATH found (pivot to 2.1.112 pure-JS). VERIFIED vs npm.**
+  The musl claude binary launches + renders full-screen TUI on the phone (Claude mascot, colors,
+  onboarding — all clean), but the API call fails: `Failed to connect to api.anthropic.com`.
+  Root cause: claude is **musl**, musl does DNS via `/etc/resolv.conf` which **does not exist on
+  Android** (confirmed absent; Android resolves via netd, which only bionic knows). ping works
+  (system/bionic); claude can't resolve. **The fix is a version pivot, not a DNS hack:**
+  `@anthropic-ai/claude-code` was pure JavaScript through **2.1.112** (`bin: cli.js`, 49 MB,
+  self-contained, zero deps) and flipped to a thin wrapper→compiled-native-binary at **2.1.113**
+  (`bin: bin/claude.exe` + per-platform `...-musl` optionalDeps). So run **2.1.112 cli.js on our
+  bundled Termux Node, which is BIONIC** → DNS resolves via netd (node/fetch already proven to
+  work), AND bionic Node is seccomp-allowlisted → **the SIGSYS shim isn't even needed for this
+  path**, AND no musl loader / no 241 MB libclaude.so. Native surface of 2.1.112 is tiny: `cli.js`
+  (JS) + optional `vendor/ripgrep/arm64-linux/rg` (escape hatch: `USE_BUILTIN_RIPGREP=0` + system
+  rg, as Termux does) + optional audio-capture.node + optional sharp. Operator runs 2.1.112 on
+  Termux daily — proven to work on arm64/bionic.
+  **IMPLEMENTED + startup-verified 2026-07-05:** `claude-js/` bundle (2.1.112 cli.js stripped to
+  arm64, zipped, MauiAsset `claude-js.zip`, fetched by `fetch-claude-js.sh`, gitignored ~6 MB).
+  `NodeRuntimeService.SetupClaude` now extracts the zip to filesDir on first run and aliases
+  `claude` -> `node cli.js` (+ USE_BUILTIN_RIPGREP=0). Musl path gated OFF by default
+  (`-p:BundleMuslClaude=true` to re-enable). Phone logcat: `claude-js extracted` +
+  `claude self-test OK: 2.1.112`. App ~230 MB smaller (no libclaude.so). NETWORK test pending
+  (the point of the pivot); rg-as-native-lib still owed for search tools.
+
 - **2026-07-05 — CLAUDE CODE RUNS ON THE PHONE IN-APP. Tier 3 seccomp blocker CLOSED.**
   `Native/sigsys/libsigsys2enosys.c` — freestanding aarch64 LD_PRELOAD shim (3 KB, zero
   DT_NEEDED so it can't collide with the process's musl; built via NDK r27c, `build-sigsys.sh`).

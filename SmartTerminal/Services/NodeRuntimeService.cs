@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO.Compression;
 
 namespace SmartTerminal.Services;
 
@@ -85,7 +86,7 @@ public static class NodeRuntimeService
 
             NodeAvailable = SelfTest(Path.Combine(binDir, "node"));
 
-            SetupClaude(nativeDir, homeDir);
+            SetupClaude(filesDir, homeDir);
         }
         catch (Exception ex)
         {
@@ -99,63 +100,89 @@ public static class NodeRuntimeService
 
 #if ANDROID
     /// <summary>
-    /// Claude Code ships as a musl-linked native binary; musl's loader runs it as
-    /// argv[1]. Both live in nativeLibraryDir (exec + PROT_EXEC allowed). The shell
-    /// gets `claude` as an alias via $ENV (mksh reads it for interactive shells) —
-    /// a wrapper *script* would need exec from filesDir, which SELinux denies.
+    /// Claude Code 2.1.112 — the last PURE-JAVASCRIPT release (2.1.113+ became a thin
+    /// wrapper around a compiled musl binary). Running cli.js on the bundled BIONIC Node
+    /// means DNS resolves via Android's netd — musl cannot (no /etc/resolv.conf on
+    /// Android) — and bionic Node is seccomp-allowlisted, so no SIGSYS shim is needed.
+    /// cli.js ships as a MauiAsset (claude-js.zip), extracted to filesDir on first run.
+    /// (The musl-binary + shim path is the documented fallback; see ROADMAP 2026-07-05.)
     /// </summary>
-    private static void SetupClaude(string nativeDir, string homeDir)
+    private static void SetupClaude(string filesDir, string homeDir)
     {
-        string loader = Path.Combine(nativeDir, "libmuslld.so");
-        string claude = Path.Combine(nativeDir, "libclaude.so");
-        if (!File.Exists(loader) || !File.Exists(claude))
+        if (!NodeAvailable)
         {
-            Android.Util.Log.Info(Tag, "libclaude.so/libmuslld.so not bundled — claude disabled.");
+            Android.Util.Log.Info(Tag, "node unavailable — claude-js disabled.");
             ClaudeAvailable = false;
             return;
         }
 
-        // SIGSYS->ENOSYS shim (see Native/sigsys/): Android's untrusted_app seccomp
-        // SIGSYS-kills clone3 (which musl probes then falls back from). LD_PRELOAD'd
-        // into the musl process, the shim converts those kills back into -ENOSYS so
-        // the fallback works. Scoped to claude only — not set globally — so node
-        // (bionic) is untouched. Absent on the API-36 emulator's looser filter (claude
-        // runs there without it), so this is present-or-degrade like every other lib.
-        string shim = Path.Combine(nativeDir, "libsigsys2enosys.so");
-        string preload = File.Exists(shim) ? $"LD_PRELOAD={shim} " : "";
+        string nodePath = Path.Combine(filesDir, "bin", "node");
+        string jsDir = Path.Combine(filesDir, "claude-js");
+        string cliJs = Path.Combine(jsDir, "cli.js");
+
+        if (!File.Exists(cliJs) && !ExtractClaudeJs(jsDir))
+        {
+            ClaudeAvailable = false;
+            return;
+        }
 
         string rc = Path.Combine(homeDir, ".mkshrc");
-        // Start interactive shells in HOME — the app's inherited cwd is "/", which
-        // untrusted_app can't even list (the "ls: .: Permission denied" surprise).
-        string rcBody = $"cd \"$HOME\"\nalias claude='{preload}{loader} {claude}'\n";
+        // Start in HOME (app cwd "/" is unlistable for untrusted_app). USE_BUILTIN_RIPGREP=0:
+        // the vendored rg can't exec from filesDir (SELinux W^X) — search degrades until rg
+        // ships as a native lib (ROADMAP task). claude = node cli.js on the bionic runtime.
+        string rcBody = $"cd \"$HOME\"\nalias claude='USE_BUILTIN_RIPGREP=0 {nodePath} {cliJs}'\n";
         if (!File.Exists(rc) || File.ReadAllText(rc) != rcBody)
             File.WriteAllText(rc, rcBody);
         Android.Systems.Os.Setenv("ENV", rc, true);
         Environment.SetEnvironmentVariable("ENV", rc);
 
-        ClaudeAvailable = ClaudeSelfTest(loader, claude, File.Exists(shim) ? shim : null);
+        ClaudeAvailable = ClaudeSelfTest(nodePath, cliJs);
     }
 
-    private static bool ClaudeSelfTest(string loader, string claude, string? shim)
+    private static bool ExtractClaudeJs(string jsDir)
+    {
+        try
+        {
+            Directory.CreateDirectory(jsDir);
+            using var asset = Microsoft.Maui.Storage.FileSystem
+                .OpenAppPackageFileAsync("claude-js.zip").GetAwaiter().GetResult();
+            using var zip = new ZipArchive(asset, ZipArchiveMode.Read);
+            zip.ExtractToDirectory(jsDir, overwriteFiles: true);
+            Android.Util.Log.Info(Tag, "claude-js extracted.");
+            return true;
+        }
+        catch (FileNotFoundException)
+        {
+            Android.Util.Log.Info(Tag, "claude-js.zip not bundled — claude disabled.");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Android.Util.Log.Error(Tag, $"claude-js extract failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    private static bool ClaudeSelfTest(string nodePath, string cliJs)
     {
         try
         {
             var psi = new ProcessStartInfo
             {
-                FileName = loader,
-                Arguments = $"{claude} --version",
+                FileName = nodePath,
+                Arguments = $"{cliJs} --version",
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
             };
             psi.EnvironmentVariables["HOME"] = Android.Systems.Os.Getenv("HOME") ?? "";
             psi.EnvironmentVariables["TMPDIR"] = Android.Systems.Os.Getenv("TMPDIR") ?? "";
-            if (shim != null)
-                psi.EnvironmentVariables["LD_PRELOAD"] = shim;
+            psi.EnvironmentVariables["LD_LIBRARY_PATH"] = Android.Systems.Os.Getenv("LD_LIBRARY_PATH") ?? "";
+            psi.EnvironmentVariables["USE_BUILTIN_RIPGREP"] = "0";
             using var p = Process.Start(psi)!;
             string stdout = p.StandardOutput.ReadToEnd().Trim();
             string stderr = p.StandardError.ReadToEnd().Trim();
-            p.WaitForExit(30_000);
+            p.WaitForExit(60_000);
 
             if (p.ExitCode == 0 && stdout.Length > 0)
             {
