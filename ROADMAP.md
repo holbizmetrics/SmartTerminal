@@ -114,6 +114,27 @@ genuinely needs POSIX-everywhere.
 
 ## Decision log
 
+- **2026-07-07 (night) — bash + rg SHIPPED; first real claude tool-calls ran on-device.
+  Package-manager route DECIDED-PENDING: targetSdk 28 + runtime installs (own arc).**
+  Post-login claude threw "Claude CLI requires a Posix shell environment": its shell
+  detection (cli.js NzY) only accepts a shell whose PATH STRING contains "bash"/"zsh" —
+  mksh can never qualify. Shipped robxu9/bash-static 5.2.15 (static aarch64-musl, 2.3 MB)
+  as libbash.so + bin/bash symlink + SHELL env; terminal stays mksh (pty.c takes its shell
+  explicitly). Proof it matters: claude's Bash tool then executed real commands through it
+  (screenshot: `git pull` → "git: command not found" — correct, no git in sandbox).
+  Also shipped ripgrep 15.0.0 (microsoft/ripgrep-prebuilt aarch64-MUSL — upstream has no
+  such asset) as librg.so + bin/rg; with USE_BUILTIN_RIPGREP=0 already set, claude's search
+  tools now resolve rg from PATH. Boot self-tests generalized (ToolSelfTest) — static musl
+  binaries can't take the sigsys LD_PRELOAD shim, so the boot log line is the per-device
+  seccomp proof; both green on SM-G977B/Android 12.
+  **git deliberately NOT baked:** no prebuilt static aarch64 git with git-remote-https
+  exists (the https transport is the part static builds skip), and repacking Termux git
+  means a multi-lib + helper-exe dance. The better route is the PACKAGE MANAGER arc:
+  drop targetSdkVersion to 28 (the Termux trick — SELinux allows app-data exec only for
+  targetSdk ≤ 28; side-loaded app, Play rules irrelevant) → runtime-downloaded binaries
+  become executable → a small stpkg (node-based downloads) can install git/jq/python from
+  Termux debs or static builds WITHOUT rebuilds. Next session's opener.
+
 - **2026-07-07 (evening, later) — LOGIN COMPLETE. Claude Code authenticated + live in-app.
   The app-signal fix VERIFIED end-to-end on device — and the login closed ITSELF.**
   Deploy: `dotnet build -t:Install` onto SM-G977B (2.6 GB free sufficed, no trim needed).

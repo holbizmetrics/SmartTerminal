@@ -70,6 +70,14 @@
     <AndroidNativeLibrary Include="Native\bash\arm64-v8a\libbash.so" Abi="arm64-v8a" />
   </ItemGroup>
 
+  <!-- Static ripgrep (microsoft/ripgrep-prebuilt, aarch64-musl): Claude Code's search tools.
+       The vendored rg can't exec from filesDir (SELinux W^X) so the alias sets
+       USE_BUILTIN_RIPGREP=0 and claude uses this one from PATH (bin/rg symlink).
+       Fetched by Native/rg/fetch-rg.sh; payload gitignored. See ROADMAP 2026-07-07. -->
+  <ItemGroup Condition="Exists('Native\rg\arm64-v8a\librg.so')">
+    <AndroidNativeLibrary Include="Native\rg\arm64-v8a\librg.so" Abi="arm64-v8a" />
+  </ItemGroup>
+
   <!-- FALLBACK PATH (opt-in, off by default): Claude Code native musl binary + musl loader + SIGSYS
        shim. Superseded by the 2.1.112 pure-JS path above (which fixes DNS and needs no musl/shim).
        Enable with -p:BundleMuslClaude=true. ~240 MB/ABI. See ROADMAP 2026-07-05 decision log. -->

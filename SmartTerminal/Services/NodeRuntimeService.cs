@@ -82,6 +82,14 @@ public static class NodeRuntimeService
             if (bashPresent)
                 EnsureSymlink(bashBin, bashLib);
 
+            // bin/rg -> librg.so (static musl ripgrep). Claude Code's alias sets
+            // USE_BUILTIN_RIPGREP=0 (vendored rg can't exec from filesDir), so its
+            // search tools resolve rg from PATH — this symlink.
+            string rgLib = Path.Combine(nativeDir, "librg.so");
+            bool rgPresent = File.Exists(rgLib);
+            if (rgPresent)
+                EnsureSymlink(Path.Combine(binDir, "rg"), rgLib);
+
             // Environment for every child the PTY forks (pty.c preserves pre-set HOME/PATH).
             // Set BOTH environs: Os.Setenv hits the native environ (inherited by forkpty
             // children); Environment.SetEnvironmentVariable hits the managed snapshot
@@ -103,7 +111,9 @@ public static class NodeRuntimeService
             }
 
             if (bashPresent)
-                BashSelfTest(bashBin);
+                ToolSelfTest("bash", bashBin, "-c \"echo $BASH_VERSION\"");
+            if (rgPresent)
+                ToolSelfTest("rg", Path.Combine(binDir, "rg"), "--version");
 
             NodeAvailable = SelfTest(Path.Combine(binDir, "node"));
 
@@ -293,18 +303,19 @@ public static class NodeRuntimeService
     }
 
     /// <summary>
-    /// Spawn `bash --version` in the app domain. STATIC musl binary — the sigsys
-    /// LD_PRELOAD shim cannot help it, so this log line is the proof that Android's
-    /// untrusted_app seccomp tolerates it on this device (exit 159 = SIGSYS if not).
+    /// Spawn a bundled tool in the app domain and log its version line. The static
+    /// musl binaries (bash, rg) can't take the sigsys LD_PRELOAD shim, so this log
+    /// line is the proof that Android's untrusted_app seccomp tolerates them on
+    /// this device (exit 159 = SIGSYS if not).
     /// </summary>
-    private static void BashSelfTest(string bashPath)
+    private static void ToolSelfTest(string label, string path, string args)
     {
         try
         {
             var psi = new ProcessStartInfo
             {
-                FileName = bashPath,
-                Arguments = "-c \"echo $BASH_VERSION\"",
+                FileName = path,
+                Arguments = args,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
@@ -314,13 +325,13 @@ public static class NodeRuntimeService
             string stderr = p.StandardError.ReadToEnd().Trim();
             p.WaitForExit(10_000);
             if (p.ExitCode == 0 && stdout.Length > 0)
-                Android.Util.Log.Info(Tag, $"bash self-test OK: {stdout}");
+                Android.Util.Log.Info(Tag, $"{label} self-test OK: {stdout.Split('\n')[0]}");
             else
-                Android.Util.Log.Error(Tag, $"bash self-test FAILED: exit={p.ExitCode} out='{stdout}' err='{stderr}'");
+                Android.Util.Log.Error(Tag, $"{label} self-test FAILED: exit={p.ExitCode} out='{stdout}' err='{stderr}'");
         }
         catch (Exception ex)
         {
-            Android.Util.Log.Error(Tag, $"bash self-test EXCEPTION: {ex.Message}");
+            Android.Util.Log.Error(Tag, $"{label} self-test EXCEPTION: {ex.Message}");
         }
     }
 
