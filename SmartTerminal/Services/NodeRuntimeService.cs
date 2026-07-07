@@ -166,9 +166,12 @@ public static class NodeRuntimeService
 
         string rc = Path.Combine(homeDir, ".mkshrc");
         // Start in HOME (app cwd "/" is unlistable for untrusted_app). USE_BUILTIN_RIPGREP=0:
-        // the vendored rg can't exec from filesDir (SELinux W^X) — search degrades until rg
-        // ships as a native lib (ROADMAP task). claude = node cli.js on the bionic runtime.
-        string rcBody = $"cd \"$HOME\"\nalias claude='USE_BUILTIN_RIPGREP=0 {browserEnv}{nodePath} {cliJs}'\n";
+        // the vendored rg can't exec from filesDir (SELinux W^X) — search resolves to the
+        // bundled bin/rg from PATH instead. DISABLE_AUTOUPDATER=1: 2.1.112 is the last
+        // pure-JS release; an auto-update would swap in the native musl binary, which
+        // cannot resolve DNS on Android (no /etc/resolv.conf) — the updater must never run.
+        // claude = node cli.js on the bionic runtime.
+        string rcBody = $"cd \"$HOME\"\nalias claude='USE_BUILTIN_RIPGREP=0 DISABLE_AUTOUPDATER=1 {browserEnv}{nodePath} {cliJs}'\n";
         if (!File.Exists(rc) || File.ReadAllText(rc) != rcBody)
             File.WriteAllText(rc, rcBody);
         Android.Systems.Os.Setenv("ENV", rc, true);

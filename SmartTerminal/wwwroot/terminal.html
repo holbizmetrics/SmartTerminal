@@ -379,6 +379,24 @@
         }
 
         /**
+         * Serialize the whole scrollback buffer to plain text (for the CPY key).
+         * xterm.js renders to canvas, so Android's long-press text selection has
+         * no DOM text to grab — this is the copy path instead.
+         * Called from C#: webView.EvaluateJavascript("termGetBuffer()", callback)
+         */
+        function termGetBuffer() {
+            if (!term) return "";
+            const buf = term.buffer.active;
+            const lines = [];
+            for (let i = 0; i < buf.length; i++) {
+                const line = buf.getLine(i);
+                lines.push(line ? line.translateToString(true) : "");
+            }
+            while (lines.length && lines[lines.length - 1] === "") lines.pop();
+            return lines.join("\n");
+        }
+
+        /**
          * Clear the terminal screen.
          */
         function termClear() {

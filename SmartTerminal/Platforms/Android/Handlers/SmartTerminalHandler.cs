@@ -121,7 +121,7 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
         };
 
         // 3. ExtraKeysBar — anchored at bottom, above soft keyboard
-        _extraKeysBar = new ExtraKeysBar(context, OnExtraKeyInput, OnPasteRequested);
+        _extraKeysBar = new ExtraKeysBar(context, OnExtraKeyInput, OnPasteRequested, OnCopyRequested);
         var barLp = new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MatchParent,
             extraKeysHeight,
@@ -311,6 +311,49 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"Paste error: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Called when the CPY button on the extra keys bar is tapped. xterm.js renders
+    /// to canvas so Android text selection can't reach the terminal — instead we
+    /// serialize the whole scrollback (termGetBuffer in terminal.html) and put it
+    /// on the clipboard.
+    /// </summary>
+    private void OnCopyRequested()
+    {
+        _webView?.EvaluateJavascript("termGetBuffer()", new CopyBufferCallback(Context));
+    }
+
+    private sealed class CopyBufferCallback : Java.Lang.Object, global::Android.Webkit.IValueCallback
+    {
+        private readonly Context? _context;
+        public CopyBufferCallback(Context? context) { _context = context; }
+
+        public void OnReceiveValue(Java.Lang.Object? value)
+        {
+            try
+            {
+                // EvaluateJavascript delivers the JS return value JSON-encoded.
+                string? json = value?.ToString();
+                if (string.IsNullOrEmpty(json) || json == "null") return;
+                string text = System.Text.Json.JsonSerializer.Deserialize<string>(json) ?? "";
+                if (text.Length == 0) return;
+
+                var clipboard = (global::Android.Content.ClipboardManager?)
+                    _context?.GetSystemService(Context.ClipboardService);
+                var clip = global::Android.Content.ClipData.NewPlainText("terminal", text);
+                if (clipboard != null && clip != null)
+                {
+                    clipboard.PrimaryClip = clip;
+                    global::Android.Widget.Toast.MakeText(
+                        _context, $"Copied {text.Length} chars", global::Android.Widget.ToastLength.Short)?.Show();
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Copy error: {ex.Message}");
+            }
         }
     }
 
