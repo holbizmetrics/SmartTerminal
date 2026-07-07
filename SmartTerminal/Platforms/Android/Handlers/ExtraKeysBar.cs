@@ -71,7 +71,14 @@ internal class ExtraKeysBar : HorizontalScrollView
         _onCopy = onCopy;
         _onScroll = onScroll;
 
-        HorizontalScrollBarEnabled = false;
+        // "There's more here" hints: a fading edge on the side that has more
+        // content (the strongest native affordance) + a persistent thin
+        // scrollbar. Both users (operator AND the agent) missed that this bar
+        // scrolls — the arrow/PST/CPY keys were invisible for two days (2026-07-07).
+        HorizontalScrollBarEnabled = true;
+        ScrollbarFadingEnabled = false;
+        HorizontalFadingEdgeEnabled = true;
+        SetFadingEdgeLength((int)(24 * context.Resources!.DisplayMetrics!.Density));
         SetBackgroundColor(AColor.ParseColor("#0f0f23"));
         SetPadding(4, 2, 4, 2);
 
