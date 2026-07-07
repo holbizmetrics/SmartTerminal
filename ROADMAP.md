@@ -114,6 +114,25 @@ genuinely needs POSIX-everywhere.
 
 ## Decision log
 
+- **2026-07-07 (evening) — opener→app-signal fix BUILT (task 1 of the 07-07 login-arc entry).**
+  `browser_open.c` v2: writes the URL to `$TMPDIR/open-url` (atomic tmp+rename), keeps the old
+  `am start` exec only as a shell-domain fallback. `NodeRuntimeService` arms an
+  `Android.OS.FileObserver` on `files/tmp` at Setup(); on `open-url` it validates the scheme
+  (http/https only), deletes the file, and calls `Browser.OpenAsync` from the app process —
+  which IS allowed to start activities. Compile green (0 errors).
+  **Toolchain note:** the NDK from 07-05 survived only partially (sysroot, no clang) and this
+  box's corporate wall blocks curl (SChannel/PowerShell passes) — so the opener is now built
+  with **zig cc as a static aarch64-musl binary** (25 KB, no loader/libc deps; build.sh tries
+  NDK clang first, falls back to zig). Static musl on Android: same trick as the ld-musl claude
+  probe, minus the loader.
+  **Also confirmed in code:** `SetupClaude` rewrites `.mkshrc` whenever content differs — the
+  07-07 on-phone stopgap alias was therefore erased at next app start, as suspected.
+  **Task 2 (no-autocap inputType) PARKED — design fork:** `TextFlagNoSuggestions` /
+  visible-password would kill the SwiftKey prediction bar = the founding feature; there is no
+  InputType flag meaning "predictions yes, autocap no" (current code sets no cap flags and
+  SwiftKey autocaps from its own heuristics). Options: settings toggle, NoSuggestions default,
+  or live-with-it. Operator call owed.
+
 - **2026-07-07 — LOGIN ARC: browser auto-open ROOT-CAUSED DEAD on device; zero-rebuild stopgap wired; login not yet completed (session closed at the URL stage).**
   The f0e77f0 opener FAILS on the phone — not at exec (the .so runs fine from nativeLibraryDir),
   but at `am` itself: `cmd: Failure calling service activity: Failed transaction (2147483646)`,

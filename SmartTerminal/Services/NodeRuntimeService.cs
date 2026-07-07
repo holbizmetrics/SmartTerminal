@@ -59,6 +59,11 @@ public static class NodeRuntimeService
             foreach (var d in new[] { binDir, libDir, homeDir, tmpDir })
                 Directory.CreateDirectory(d);
 
+            // The $BROWSER opener signals us via tmp/open-url — it cannot start
+            // activities itself (am's binder call is denied for untrusted_app), but
+            // this app process may. Watch for the whole app lifetime.
+            StartOpenUrlWatcher(tmpDir);
+
             // bin/node -> nativeLibraryDir/libnode.so (argv[0] must be "node", not "libnode.so")
             EnsureSymlink(Path.Combine(binDir, "node"), Path.Combine(nativeDir, "libnode.so"));
 
@@ -208,6 +213,63 @@ public static class NodeRuntimeService
 #endif
 
 #if ANDROID
+    // Kept alive for the app lifetime — a GC'd FileObserver stops watching silently.
+    private static OpenUrlObserver? _openUrlObserver;
+
+    private static void StartOpenUrlWatcher(string tmpDir)
+    {
+        _openUrlObserver = new OpenUrlObserver(tmpDir);
+        _openUrlObserver.StartWatching();
+        Android.Util.Log.Info(Tag, $"open-url watcher armed on {tmpDir}");
+    }
+
+    /// <summary>
+    /// Watches tmp/ for "open-url", written by libbrowseropener.so when claude's
+    /// OAuth login runs `$BROWSER url`. The opener execs no am (denied for
+    /// untrusted_app on real devices — ROADMAP 2026-07-07); it writes the URL
+    /// atomically (tmp + rename) and this observer opens it from the app process,
+    /// which is allowed to start activities.
+    /// </summary>
+    private sealed class OpenUrlObserver : Android.OS.FileObserver
+    {
+        private readonly string _dir;
+
+        public OpenUrlObserver(string dir)
+#pragma warning disable CS0618, CA1422 // string ctor deprecated in API 29; the File ctor needs 29+, minSdk is 26
+            : base(dir, Android.OS.FileObserverEvents.MovedTo | Android.OS.FileObserverEvents.CloseWrite)
+#pragma warning restore CS0618, CA1422
+        {
+            _dir = dir;
+        }
+
+        public override void OnEvent(Android.OS.FileObserverEvents e, string? path)
+        {
+            if (path != "open-url") return;
+            string file = Path.Combine(_dir, "open-url");
+            try
+            {
+                string url = File.ReadAllText(file).Trim();
+                File.Delete(file);
+                if (!url.StartsWith("http://") && !url.StartsWith("https://"))
+                {
+                    Android.Util.Log.Warn(Tag, $"open-url ignored (non-http scheme): '{url}'");
+                    return;
+                }
+                Android.Util.Log.Info(Tag, $"open-url -> browser: {url}");
+                Microsoft.Maui.ApplicationModel.MainThread.BeginInvokeOnMainThread(async () =>
+                {
+                    try { await Microsoft.Maui.ApplicationModel.Browser.Default.OpenAsync(url); }
+                    catch (Exception ex) { Android.Util.Log.Error(Tag, $"Browser.OpenAsync failed: {ex.Message}"); }
+                });
+            }
+            catch (FileNotFoundException) { /* raced a duplicate event for the same file */ }
+            catch (Exception ex)
+            {
+                Android.Util.Log.Error(Tag, $"open-url handling failed: {ex.Message}");
+            }
+        }
+    }
+
     private static void EnsureSymlink(string link, string target)
     {
         try { Android.Systems.Os.Remove(link); } catch { /* didn't exist */ }
