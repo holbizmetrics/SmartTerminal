@@ -114,7 +114,22 @@ genuinely needs POSIX-everywhere.
 
 ## Decision log
 
-- **2026-07-07 (evening) — opener→app-signal fix BUILT (task 1 of the 07-07 login-arc entry).**
+- **2026-07-07 (evening, later) — LOGIN COMPLETE. Claude Code authenticated + live in-app.
+  The app-signal fix VERIFIED end-to-end on device — and the login closed ITSELF.**
+  Deploy: `dotnet build -t:Install` onto SM-G977B (2.6 GB free sufficed, no trim needed).
+  Logcat: `open-url watcher armed` + node/claude self-tests OK. Mechanical e2e test first
+  (run-as exec of the opener with https://example.com, TMPDIR set): opener exit 0 →
+  `open-url -> browser` → Brave CustomTab foreground — browser overlay opens ON TOP of the
+  terminal (Browser.OpenAsync default), ideal login UX. Then the real run: claude's OAuth URL
+  auto-opened at 19:02, and because claude 2.1.112 runs a loopback callback server
+  (`redirect_uri=localhost:33037/callback`) and the browser is on the same device, the OAuth
+  loop completed WITHOUT the code-paste step — `.credentials.json` + first `history.jsonl`
+  entry on disk at 19:02. The "Paste code here >" wall from both prior sessions is gone.
+  Ops notes: adb didn't enumerate the plugged phone until a second kill-server cycle
+  (Windows saw the SAMSUNG ADB interface all along — restart adb before suspecting cable);
+  Android's hashed codePath contains `==`, which breaks naive `sed 's/.*=//'` extraction.
+  REMAINING (all quality-of-life, no blockers): rg-as-native-lib, 16 KB libpty rebuild,
+  parked arrow-keys, task-2 autocap fork (operator call), console-crash watch (did not recur).
   `browser_open.c` v2: writes the URL to `$TMPDIR/open-url` (atomic tmp+rename), keeps the old
   `am start` exec only as a shell-domain fallback. `NodeRuntimeService` arms an
   `Android.OS.FileObserver` on `files/tmp` at Setup(); on `open-url` it validates the scheme
