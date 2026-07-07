@@ -114,6 +114,35 @@ genuinely needs POSIX-everywhere.
 
 ## Decision log
 
+- **2026-07-07 — LOGIN ARC: browser auto-open ROOT-CAUSED DEAD on device; zero-rebuild stopgap wired; login not yet completed (session closed at the URL stage).**
+  The f0e77f0 opener FAILS on the phone — not at exec (the .so runs fine from nativeLibraryDir),
+  but at `am` itself: `cmd: Failure calling service activity: Failed transaction (2147483646)`,
+  exit 2. `/system/bin/am`'s binder call to the activity service is DENIED for the untrusted_app
+  domain on Android 12 — this is exactly why Termux ships its own reimplemented `am` (termux-am).
+  Diagnostic method that got the error visible: append the opener invocation to `.mkshrc` via
+  `adb run-as` + open a new terminal tab (auto-runs at shell start) — adb `input text` is useless
+  for paths here because SwiftKey's predictive engine mangles injected text whenever the compose
+  buffer is dirty (clean prompt → clean injection, dirty → garbage).
+  **Permanent fix (next build): the opener must signal the APP, not call `am`** — write the URL to
+  `files/tmp/open-url` and have C# (FileSystemWatcher or poll in NodeRuntimeService) call
+  `Browser.OpenAsync(url)`; the app process is allowed to start activities. (Alternative: vendor a
+  termux-am-style app_process client — heavier.)
+  **Stopgap wired ON DEVICE (ephemeral, not in repo):** `.mkshrc` alias now sets
+  `BROWSER=/system/bin/log` → claude hands the URL to toybox `log` → it lands in logcat un-wrapped
+  → desktop fires `adb shell am start -a android.intent.action.VIEW -d "<url>"` (SHELL domain may
+  call am). CAVEATS: unverified whether `SetupClaude` rewrites `.mkshrc` at app start (would erase
+  the stopgap); the one live run still printed the "Browser didn't open?" fallback and NO log line
+  was captured — possibly run from an old-alias tab; re-verify next session.
+  **State at close:** claude 2.1.112 walks onboarding cleanly (theme → subscription login) and sits
+  at "Paste code here if prompted >" with a valid OAuth URL printed. Manual completion path that
+  needs no fix at all: open the printed URL in ANY browser (desktop fine — account-bound, not
+  device-bound), log in, copy the code, long-press-paste it into the phone terminal.
+  Also: 07-05's console-crash did NOT recur (app alive the whole session). Install on the chronically
+  full phone: `adb shell pm trim-caches 6G` freed 1.3 GB → 54 MB fast-deploy APK installed fine.
+  NEW TASKS: (1) opener→app-signal fix above; (2) terminal input view should set
+  no-suggestions/no-autocap inputType — SwiftKey autocapitalized the operator's `claude` into
+  `Claude` ("inaccessible or not found"), a first-run trap for every command.
+
 - **2026-07-05 — DNS wall hit + BETTER PATH found (pivot to 2.1.112 pure-JS). VERIFIED vs npm.**
   The musl claude binary launches + renders full-screen TUI on the phone (Claude mascot, colors,
   onboarding — all clean), but the API call fails: `Failed to connect to api.anthropic.com`.
