@@ -121,7 +121,7 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
         };
 
         // 3. ExtraKeysBar — anchored at bottom, above soft keyboard
-        _extraKeysBar = new ExtraKeysBar(context, OnExtraKeyInput, OnPasteRequested, OnCopyRequested);
+        _extraKeysBar = new ExtraKeysBar(context, OnExtraKeyInput, OnPasteRequested, OnCopyRequested, OnScrollRequested);
         var barLp = new FrameLayout.LayoutParams(
             ViewGroup.LayoutParams.MatchParent,
             extraKeysHeight,
@@ -312,6 +312,14 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
         {
             System.Diagnostics.Debug.WriteLine($"Paste error: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// TOP / END keys: jump to the top or bottom of the scrollback.
+    /// </summary>
+    private void OnScrollRequested(bool toTop)
+    {
+        _webView?.EvaluateJavascript(toTop ? "termScrollTop()" : "termScrollBottom()", null);
     }
 
     /// <summary>

@@ -379,6 +379,16 @@
         }
 
         /**
+         * Jump to the top / bottom of the scrollback (TOP / END keys).
+         */
+        function termScrollTop() {
+            if (term) term.scrollToTop();
+        }
+        function termScrollBottom() {
+            if (term) term.scrollToBottom();
+        }
+
+        /**
          * Serialize the whole scrollback buffer to plain text (for the CPY key).
          * xterm.js renders to canvas, so Android's long-press text selection has
          * no DOM text to grab — this is the copy path instead.

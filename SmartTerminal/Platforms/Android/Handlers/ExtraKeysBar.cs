@@ -17,6 +17,7 @@ internal class ExtraKeysBar : HorizontalScrollView
     private readonly Action<string> _onInput;
     private readonly Action _onPaste;
     private readonly Action _onCopy;
+    private readonly Action<bool> _onScroll; // true = to top, false = to bottom
     private readonly LinearLayout _container;
 
     private AButton? _ctrlButton;
@@ -63,11 +64,12 @@ internal class ExtraKeysBar : HorizontalScrollView
         if (_altState == 1) SetAltState(0);
     }
 
-    public ExtraKeysBar(Context context, Action<string> onInput, Action onPaste, Action onCopy) : base(context)
+    public ExtraKeysBar(Context context, Action<string> onInput, Action onPaste, Action onCopy, Action<bool> onScroll) : base(context)
     {
         _onInput = onInput;
         _onPaste = onPaste;
         _onCopy = onCopy;
+        _onScroll = onScroll;
 
         HorizontalScrollBarEnabled = false;
         SetBackgroundColor(AColor.ParseColor("#0f0f23"));
@@ -97,6 +99,7 @@ internal class ExtraKeysBar : HorizontalScrollView
         AddKey("\u2192", "\x1b[C"); // Right arrow
         AddPasteKey();
         AddCopyKey();
+        AddScrollKeys();
 
         AddView(_container);
     }
@@ -139,6 +142,17 @@ internal class ExtraKeysBar : HorizontalScrollView
         var btn = CreateKeyButton("CPY");
         btn.Click += (s, e) => _onCopy();
         _container.AddView(btn);
+    }
+
+    private void AddScrollKeys()
+    {
+        var top = CreateKeyButton("TOP");
+        top.Click += (s, e) => _onScroll(true);
+        _container.AddView(top);
+
+        var end = CreateKeyButton("END");
+        end.Click += (s, e) => _onScroll(false);
+        _container.AddView(end);
     }
 
     private AButton CreateKeyButton(string label)
