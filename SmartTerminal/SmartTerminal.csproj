@@ -62,6 +62,14 @@
     <AndroidNativeLibrary Include="Native\browser-opener\arm64-v8a\libbrowseropener.so" Abi="arm64-v8a" />
   </ItemGroup>
 
+  <!-- Static bash (robxu9/bash-static, musl): Claude Code's shell detection only accepts a
+       shell whose path string contains "bash"/"zsh" — mksh never qualifies. NodeRuntimeService
+       symlinks files/bin/bash -> this and sets SHELL. Fetched by Native/bash/fetch-bash.sh;
+       payload gitignored. See ROADMAP 2026-07-07. -->
+  <ItemGroup Condition="Exists('Native\bash\arm64-v8a\libbash.so')">
+    <AndroidNativeLibrary Include="Native\bash\arm64-v8a\libbash.so" Abi="arm64-v8a" />
+  </ItemGroup>
+
   <!-- FALLBACK PATH (opt-in, off by default): Claude Code native musl binary + musl loader + SIGSYS
        shim. Superseded by the 2.1.112 pure-JS path above (which fixes DNS and needs no musl/shim).
        Enable with -p:BundleMuslClaude=true. ~240 MB/ABI. See ROADMAP 2026-07-05 decision log. -->

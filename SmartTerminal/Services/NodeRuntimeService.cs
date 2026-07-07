@@ -71,6 +71,17 @@ public static class NodeRuntimeService
             foreach (var (link, target) in SonameLinks)
                 EnsureSymlink(Path.Combine(libDir, link), Path.Combine(nativeDir, target));
 
+            // bin/bash -> libbash.so (static musl build). Claude Code's shell detection
+            // (cli.js NzY) requires a shell whose PATH STRING contains "bash"/"zsh" —
+            // mksh can never qualify — and probes `which bash` + $SHELL. The symlink
+            // satisfies both; SHELL is set below. pty.c takes its shell as an explicit
+            // parameter, so the terminal itself stays mksh.
+            string bashLib = Path.Combine(nativeDir, "libbash.so");
+            bool bashPresent = File.Exists(bashLib);
+            string bashBin = Path.Combine(binDir, "bash");
+            if (bashPresent)
+                EnsureSymlink(bashBin, bashLib);
+
             // Environment for every child the PTY forks (pty.c preserves pre-set HOME/PATH).
             // Set BOTH environs: Os.Setenv hits the native environ (inherited by forkpty
             // children); Environment.SetEnvironmentVariable hits the managed snapshot
@@ -83,11 +94,16 @@ public static class NodeRuntimeService
                 ["HOME"] = homeDir,
                 ["TMPDIR"] = tmpDir,
             };
+            if (bashPresent)
+                env["SHELL"] = bashBin;
             foreach (var (k, v) in env)
             {
                 Android.Systems.Os.Setenv(k, v, true);
                 Environment.SetEnvironmentVariable(k, v);
             }
+
+            if (bashPresent)
+                BashSelfTest(bashBin);
 
             NodeAvailable = SelfTest(Path.Combine(binDir, "node"));
 
@@ -274,6 +290,38 @@ public static class NodeRuntimeService
     {
         try { Android.Systems.Os.Remove(link); } catch { /* didn't exist */ }
         Android.Systems.Os.Symlink(target, link);
+    }
+
+    /// <summary>
+    /// Spawn `bash --version` in the app domain. STATIC musl binary — the sigsys
+    /// LD_PRELOAD shim cannot help it, so this log line is the proof that Android's
+    /// untrusted_app seccomp tolerates it on this device (exit 159 = SIGSYS if not).
+    /// </summary>
+    private static void BashSelfTest(string bashPath)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = bashPath,
+                Arguments = "-c \"echo $BASH_VERSION\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            };
+            using var p = Process.Start(psi)!;
+            string stdout = p.StandardOutput.ReadToEnd().Trim();
+            string stderr = p.StandardError.ReadToEnd().Trim();
+            p.WaitForExit(10_000);
+            if (p.ExitCode == 0 && stdout.Length > 0)
+                Android.Util.Log.Info(Tag, $"bash self-test OK: {stdout}");
+            else
+                Android.Util.Log.Error(Tag, $"bash self-test FAILED: exit={p.ExitCode} out='{stdout}' err='{stderr}'");
+        }
+        catch (Exception ex)
+        {
+            Android.Util.Log.Error(Tag, $"bash self-test EXCEPTION: {ex.Message}");
+        }
     }
 
     /// <summary>
