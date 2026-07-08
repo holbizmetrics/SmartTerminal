@@ -65,6 +65,9 @@ const REGISTRY = {
     kind: 'targz',
     bins: ['fd'], // musl static (unlike jqlang's glibc jq) — runs under Android seccomp
     // tarball nests the binary under a top-level dir; findFile() locates it.
+    // sha256 cross-path verified (laptop-proxy == phone-network), 2026-07-08;
+    // `fd --version` printed `fd 10.2.0` on device.
+    sha256: '4e8e596646d047d904f2c5ca74b39dccc69978b6e1fb101094e534b0b59c1bb0',
   },
 };
 
