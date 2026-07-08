@@ -49,6 +49,12 @@ const REGISTRY = {
     url: 'https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-arm64',
     kind: 'binary',
     bins: ['jq'],
+    // WARNING: jqlang ships this as static *glibc* ("for GNU/Linux 3.7.0"). It
+    // installs fine but is KILLED by Android's untrusted_app seccomp at startup
+    // ("Bad system call" / SIGSYS) — glibc's startup syscalls aren't in the app
+    // sandbox allowlist. musl binaries (rg, fd) run fine. TODO: source a static
+    // *musl* aarch64 jq before this entry is usable on-device. Installs+verifies;
+    // does not run. Kept as the documented glibc-vs-musl specimen.
     // static single binary — the mechanism-proving first target. sha256 verified
     // by cross-path agreement: laptop (via corp MITM proxy) and phone (own network)
     // computed the same hash independently, 2026-07-08.
@@ -57,8 +63,8 @@ const REGISTRY = {
   fd: {
     url: 'https://github.com/sharkdp/fd/releases/download/v10.2.0/fd-v10.2.0-aarch64-unknown-linux-musl.tar.gz',
     kind: 'targz',
-    bins: ['fd'],
-    stripComponents: 1, // tarball has a top-level dir; the binary is one level down
+    bins: ['fd'], // musl static (unlike jqlang's glibc jq) — runs under Android seccomp
+    // tarball nests the binary under a top-level dir; findFile() locates it.
   },
 };
 
@@ -131,9 +137,9 @@ async function install(name) {
     const tarPath = path.join(TMP, `${name}.tar`);
     fs.writeFileSync(tarPath, tar);
     // toybox `tar` ships in /system/bin on Android — use it rather than a JS untar.
-    const args = ['-xf', tarPath, '-C', pkgDir];
-    if (entry.stripComponents) args.push(`--strip-components=${entry.stripComponents}`);
-    try { execFileSync('tar', args, { stdio: 'pipe' }); }
+    // NOTE: no --strip-components — Android's toybox tar doesn't support it. Extract
+    // flat and let findFile() locate each binary at whatever depth it lands.
+    try { execFileSync('tar', ['-xf', tarPath, '-C', pkgDir], { stdio: 'pipe' }); }
     catch (e) { die(`tar extract failed (${e.message}). Is 'tar' on PATH?`); }
     fs.rmSync(tarPath, { force: true });
     for (const b of entry.bins) {
