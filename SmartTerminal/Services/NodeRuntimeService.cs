@@ -101,6 +101,15 @@ public static class NodeRuntimeService
                 ["LD_LIBRARY_PATH"] = $"{nativeDir}:{libDir}",
                 ["HOME"] = homeDir,
                 ["TMPDIR"] = tmpDir,
+                // The bundled Node is a repackaged Termux build with a compiled-in
+                // OPENSSL_CONF default of /data/data/com.termux/.../openssl.cnf. When the
+                // Termux app is installed, that path is another app's private 0700 dir, so
+                // opening it returns EACCES — which OpenSSL 3 treats as FATAL (an *absent*
+                // file, ENOENT, it tolerates; a *forbidden* one it does not). Any TLS init
+                // (claude's cli.js, stpkg's https downloader) then dies with exit 13. Point
+                // OPENSSL_CONF at an always-readable empty config so OpenSSL uses built-in
+                // defaults; Node's CA trust store is compiled in, so TLS is unaffected.
+                ["OPENSSL_CONF"] = "/dev/null",
             };
             if (bashPresent)
                 env["SHELL"] = bashBin;
