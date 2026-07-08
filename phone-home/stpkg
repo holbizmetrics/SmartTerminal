@@ -1,0 +1,5 @@
+#!/system/bin/sh
+# stpkg launcher — lives in files/bin (on PATH). Runs the node package manager
+# in the app domain (where node can actually exec). Env (PATH/LD_LIBRARY_PATH/
+# HOME/TMPDIR/OPENSSL_CONF) is already set by NodeRuntimeService for every PTY child.
+exec node "$HOME/stpkg.js" "$@"
