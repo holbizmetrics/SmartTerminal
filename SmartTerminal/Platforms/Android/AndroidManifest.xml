@@ -1,6 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- targetSdkVersion 28 — DELIBERATE (the Termux trick): SELinux only allows
+         executing runtime-downloaded binaries from app storage for apps targeting
+         SDK <= 28. This is the load-bearing enabler for stpkg (runtime package
+         installs: git, python, ...). Trade-off: relaxes our own sandbox + pins
+         legacy storage/permission behaviors; acceptable for a side-loaded personal
+         power-tool, NOT Play-Store compatible. See ROADMAP 2026-07-07. -->
+    <uses-sdk android:targetSdkVersion="28" />
+
     <!-- Internet for xterm.js CDN loading (first launch) and future package management -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />

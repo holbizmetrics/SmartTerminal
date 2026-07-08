@@ -114,6 +114,8 @@ public static class NodeRuntimeService
                 ToolSelfTest("bash", bashBin, "-c \"echo $BASH_VERSION\"");
             if (rgPresent)
                 ToolSelfTest("rg", Path.Combine(binDir, "rg"), "--version");
+            if (bashPresent)
+                RuntimeExecSelfTest(bashLib, tmpDir);
 
             NodeAvailable = SelfTest(Path.Combine(binDir, "node"));
 
@@ -303,6 +305,48 @@ public static class NodeRuntimeService
     {
         try { Android.Systems.Os.Remove(link); } catch { /* didn't exist */ }
         Android.Systems.Os.Symlink(target, link);
+    }
+
+    /// <summary>
+    /// Can this app execute a binary from ITS OWN writable storage? Android's
+    /// SELinux W^X forbids that for apps targeting SDK >= 29 — targetSdkVersion
+    /// is pinned to 28 (AndroidManifest) precisely to allow it, because runtime
+    /// package installs (stpkg: git, python, ...) depend on it. This test copies
+    /// a known-good static binary into tmp, chmods it, runs it, and logs the
+    /// verdict. stpkg should check this log line's outcome before promising installs.
+    /// </summary>
+    private static void RuntimeExecSelfTest(string knownGoodBinary, string tmpDir)
+    {
+        string probe = Path.Combine(tmpDir, "rtexec-probe");
+        try
+        {
+            File.Copy(knownGoodBinary, probe, overwrite: true);
+            Android.Systems.Os.Chmod(probe, 0x1C0 /* 0700 */);
+            var psi = new ProcessStartInfo
+            {
+                FileName = probe,
+                Arguments = "-c \"echo rtexec-ok\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            };
+            using var p = Process.Start(psi)!;
+            string stdout = p.StandardOutput.ReadToEnd().Trim();
+            p.StandardError.ReadToEnd();
+            p.WaitForExit(10_000);
+            if (p.ExitCode == 0 && stdout == "rtexec-ok")
+                Android.Util.Log.Info(Tag, "runtime-exec self-test OK: app storage is executable (targetSdk<=28 in effect) — stpkg installs possible");
+            else
+                Android.Util.Log.Error(Tag, $"runtime-exec self-test BLOCKED: exit={p.ExitCode} out='{stdout}' — W^X still enforced, stpkg installs impossible");
+        }
+        catch (Exception ex)
+        {
+            Android.Util.Log.Error(Tag, $"runtime-exec self-test BLOCKED (exception): {ex.Message}");
+        }
+        finally
+        {
+            try { File.Delete(probe); } catch { /* best effort */ }
+        }
     }
 
     /// <summary>
