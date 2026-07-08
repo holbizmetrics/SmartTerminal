@@ -49,7 +49,10 @@ const REGISTRY = {
     url: 'https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-arm64',
     kind: 'binary',
     bins: ['jq'],
-    // static single binary — the mechanism-proving first target.
+    // static single binary — the mechanism-proving first target. sha256 verified
+    // by cross-path agreement: laptop (via corp MITM proxy) and phone (own network)
+    // computed the same hash independently, 2026-07-08.
+    sha256: '4dd2d8a0661df0b22f1bb9a1f9830f06b6f3b8f7d91211a1ef5d7c4f06a8b4a5',
   },
   fd: {
     url: 'https://github.com/sharkdp/fd/releases/download/v10.2.0/fd-v10.2.0-aarch64-unknown-linux-musl.tar.gz',
