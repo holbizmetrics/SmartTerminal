@@ -114,6 +114,21 @@ genuinely needs POSIX-everywhere.
 
 ## Decision log
 
+- **2026-07-08 (late) — stpkg arc STAGE 1 committed, UNVERIFIED on device (`5bfdf80`).**
+  Manifest `targetSdkVersion=28` (the Termux trick — SELinux permits app-storage exec only
+  for targetSdk<=28); merged manifest confirms 28; .NET toolchain builds clean (XA1006/XA4211
+  warnings expected, downgrade 36->28 legal since both above the runtime-perms boundary).
+  Added `RuntimeExecSelfTest` to boot diagnostics: copies libbash->tmp, chmod 0700, runs it,
+  logs `runtime-exec self-test OK` (app storage executable -> stpkg installs possible) or
+  `BLOCKED` (W^X still enforced). **This log line is the arc's foundation probe — read it first
+  next session.** Deploy was blocked twice: phone disk 100% full (YouTube Smart-Downloads had
+  silently auto-fetched a whole playlist as "recommended downloads" — ~27 GB; cleared
+  `/sdcard/Android/data/com.google.android.youtube/files/offline` -> 27 GB free), then a UI
+  hang + forced reboot during the mass-delete I/O storm. Phone recovered clean. **NEXT: replug,
+  deploy, read the verdict. If OK -> write stpkg (node downloader + install into files/opt +
+  symlink into files/bin); first target git.** Storage note: turn OFF YouTube Smart Downloads
+  or it refills the phone; the S10 lives chronically near-full (228 GB, was at 185 MB free).
+
 - **2026-07-07 (night) — bash + rg SHIPPED; first real claude tool-calls ran on-device.
   Package-manager route DECIDED-PENDING: targetSdk 28 + runtime installs (own arc).**
   Post-login claude threw "Claude CLI requires a Posix shell environment": its shell
