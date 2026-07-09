@@ -55,6 +55,11 @@ const REGISTRY = {
     // sandbox allowlist. musl binaries (rg, fd) run fine. TODO: source a static
     // *musl* aarch64 jq before this entry is usable on-device. Installs+verifies;
     // does not run. Kept as the documented glibc-vs-musl specimen.
+    // 2026-07-09 re-check (on-device): jqlang 1.8.2 (jq-linux-arm64) AND itchyny
+    // 1.7.1a4 arm64 both probed static *glibc* (0 "musl" / 2-7 "GLIBC" markers, no
+    // PT_INTERP) — same seccomp trap. No musl-aarch64 jq on the obvious GitHub
+    // sources; Alpine apk ships dynamic-musl jq (would need libmusl bundled).
+    // Still not usable on-device. Left for a future pass.
     // static single binary — the mechanism-proving first target. sha256 verified
     // by cross-path agreement: laptop (via corp MITM proxy) and phone (own network)
     // computed the same hash independently, 2026-07-08.
@@ -68,6 +73,20 @@ const REGISTRY = {
     // sha256 cross-path verified (laptop-proxy == phone-network), 2026-07-08;
     // `fd --version` printed `fd 10.2.0` on device.
     sha256: '4e8e596646d047d904f2c5ca74b39dccc69978b6e1fb101094e534b0b59c1bb0',
+  },
+  curl: {
+    url: 'https://github.com/moparisthebest/static-curl/releases/download/v8.11.0/curl-aarch64',
+    kind: 'binary',
+    bins: ['curl'],
+    // Static *musl* aarch64 curl 8.11.0 (musl=2, GLIBC=0, no PT_INTERP) — runs under
+    // Android seccomp, unlike the glibc jq. moparisthebest DROPPED aarch64 assets after
+    // this tag: v8.17.0 (latest, 2025-11) ships only amd64/armhf/i386/ppc64le/riscv64,
+    // so v8.11.0 is the last aarch64 build — pinned deliberately; do NOT bump blindly.
+    // Registry entry authored on-device by the phone session (2026-07-09); the chatlog
+    // capture was redraw-corrupted, so the hash was NOT copied from it — instead the
+    // binary was re-fetched and ELF-probed on the laptop (corp-proxy path) and sha256
+    // re-derived. Cross-path check completes when the phone re-installs and agrees.
+    sha256: '1b050abd1669f9a2ac29b34eb022cdeafb271dce5a4fb57d8ef8fadff6d7be1f',
   },
 };
 
