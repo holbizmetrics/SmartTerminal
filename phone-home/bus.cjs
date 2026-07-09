@@ -44,7 +44,10 @@ async function sync() {
     console.log('pulled', DIR);
   } else {
     fs.mkdirSync(DIR, { recursive: true });
-    await git.clone({ fs, dir: DIR, singleBranch: true, depth: 50, ...authArgs() });
+    // FULL clone of the single branch (no `depth`): pushing from a SHALLOW clone is a
+    // known isomorphic-git failure mode — the push resolves without throwing but the
+    // server never accepts it. singleBranch keeps it to main only; that's enough.
+    await git.clone({ fs, dir: DIR, singleBranch: true, ...authArgs() });
     console.log('cloned', URL_, '->', DIR);
   }
 }
@@ -75,7 +78,13 @@ async function send(room, to, body) {
   fs.appendFileSync(f, JSON.stringify(msg) + '\n');
   await git.add({ fs, dir: DIR, filepath: path.posix.join(room, 'chat.jsonl') });
   const sha = await git.commit({ fs, dir: DIR, message: `${ID} -> ${to} (${room})`, author: { name: ID, email: `${ID}@smartterminal` } });
-  await git.push({ fs, dir: DIR, ...authArgs() });
+  // isomorphic-git reports a REJECTED push in the RESULT (ok:false / error), not by
+  // throwing — so inspect it, else a silently-refused write still prints "sent".
+  const pr = await git.push({ fs, dir: DIR, ...authArgs() });
+  const refBad = pr && pr.refs && Object.values(pr.refs).some((r) => r && r.ok === false);
+  if (!pr || pr.ok === false || pr.error || refBad) {
+    throw new Error('push not accepted -> ' + JSON.stringify(pr));
+  }
   console.log(`sent ${msg.id.slice(0, 8)} (commit ${sha.slice(0, 8)}) -> ${to} in ${room}`);
 }
 
