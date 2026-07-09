@@ -112,7 +112,56 @@ proot works outside Termux but adds 2-5× ptrace overhead, must itself live in
 frozen `node_modules` avoids the entire userland. Only pay for proot if something
 genuinely needs POSIX-everywhere.
 
+## Runtime userland — stpkg registry gap targets
+
+Now that stpkg installs + runs musl binaries on-device (`fd 10.2.0` proven; `curl 8.11.0`
+landed), the **registry is the multiplier** — each entry is roughly a one-line add that
+restores a chunk of Termux muscle-memory. Targets below come from the on-device gap analysis
+(2026-07-09), ordered by pain-cost. **Doctrine: aarch64 static *musl* only** — static glibc
+installs but is SIGSYS-killed by the `untrusted_app` seccomp filter (the jq specimen).
+
+Priority targets:
+1. **git** — the biggest gap. App-update route is one option; a static-musl git *with*
+   `git-remote-https` is the hard part (static builds skip the https transport). Until then
+   network is read-only via GitHub REST (`gh-fetch.js` / `gh-read.js`) — and the pure-JS
+   isomorphic-git **bus client is the write path that needs no git binary at all** (phone-as-
+   securedchat-node; token-gated live test is the next milestone).
+2. **python** — huge blast radius (scripts, glue, data). Static-musl aarch64 CPython slots in
+   as a `targz` entry.
+3. **curl** — DONE (v8.11.0, musl-verified, pinned). `wget` similar if wanted.
+4. **ssh / sshd** — remote in/out; dropbear static-musl is the classic small choice.
+5. **tmux / screen** — session persistence across terminal restarts.
+6. **tcc** — tiny static C compiler → on-device builds (full clang is a much bigger ask).
+
+Policy / infra (make the registry safer + broaden what installs):
+- **glibc-reject at install** — an stpkg ELF-sniff that refuses static-glibc binaries (musl/
+  GLIBC marker + PT_INTERP check) turns the jq-class trap into an install-time error instead of
+  a runtime SIGSYS. The laptop ELF-probe used to pin curl is exactly this check — promote it
+  into stpkg itself.
+- **shared-library loader story** — anything not fully static (Python C-extensions, most Termux
+  packages) needs a private `$PREFIX/lib` + loader prefix, the way Termux patches everything.
+  Required before dynamic packages are installable.
+- **/tmp + FHS shims** — many programs hard-code `/tmp`, `/usr/bin/env`, `/bin/sh`; a stpkg-
+  managed `$PREFIX/tmp` + PATH-shims covers most.
+- **Termux-API bridges** (clipboard / camera / notifications / sensors) — nice-to-have, distant.
+
+Provenance: on-device Claude Code (Opus 4.7) gap analysis, 2026-07-09, folded back here so it
+isn't stranded in a chatlog. curl landed the same day (laptop cross-path verified).
+
 ## Decision log
+
+- **2026-07-09 — stpkg PROVEN on device + registry grows: curl added, jq musl-gap confirmed.**
+  (Recorded from a laptop session folding back an on-device chatlog.) `stpkg install fd` →
+  `fd 10.2.0` runs on-device — the 07-08 "UNVERIFIED" is discharged (musl runs, glibc SIGSYS's).
+  Added **curl** to the registry: moparisthebest/static-curl **v8.11.0** `curl-aarch64`, static
+  *musl* (ELF-probed on the laptop: musl=2, GLIBC=0, no PT_INTERP), sha256 pinned
+  `1b050abd…6d7be1f` — **re-fetched + re-hashed on the laptop**, NOT copied from the redraw-
+  corrupted chatlog. v8.11.0 is the LAST aarch64 static-curl (dropped after this tag) — pinned
+  deliberately, don't bump blindly. **jq stays glibc-blocked:** re-probed jqlang 1.8.2 + itchyny
+  1.7.1a4 arm64, both static-glibc; no musl-aarch64 jq on the obvious GitHub sources. **Node
+  quirk seen on-device:** bare `node` failed (exit 1) while `env node` and absolute-path
+  `.../files/bin/node` worked → invoke node by absolute path in wrappers (stpkg already does —
+  that's why it survived). Forward gap-target list captured above under "Runtime userland".
 
 - **2026-07-08 (late) — stpkg arc STAGE 1 committed, UNVERIFIED on device (`5bfdf80`).**
   Manifest `targetSdkVersion=28` (the Termux trick — SELinux permits app-storage exec only
