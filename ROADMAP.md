@@ -121,13 +121,15 @@ restores a chunk of Termux muscle-memory. Targets below come from the on-device 
 installs but is SIGSYS-killed by the `untrusted_app` seccomp filter (the jq specimen).
 
 Priority targets:
-1. **git** — the biggest gap. App-update route is one option; a static-musl git *with*
-   `git-remote-https` is the hard part (static builds skip the https transport). Until then
-   network is read-only via GitHub REST (`gh-fetch.js` / `gh-read.js`) — and the pure-JS
-   isomorphic-git **bus client is the write path that needs no git binary at all** (phone-as-
-   securedchat-node; token-gated live test is the next milestone).
+1. **git** — the biggest gap. **→ SUPERSEDED 2026-07-13 by Field-test gaps P2 below:**
+   static-musl git is ruled out (un-shimmable if it hits a seccomp-killed syscall — the
+   bash/faccessat2 class); plan is now git-shaped node CLI over isomorphic-git, then a
+   bionic-built git with a node `git-remote-https` helper. The pure-JS isomorphic-git
+   **bus client remains the write path that needs no git binary at all** (phone-as-
+   securedchat-node — proven live 2026-07-09).
 2. **python** — huge blast radius (scripts, glue, data). Static-musl aarch64 CPython slots in
-   as a `targz` entry.
+   as a `targz` entry. **→ see P6 caveat below** (static = un-shimmable; verify its
+   syscall surface on-device or prefer a dynamic-musl build the shim can hook).
 3. **curl** — DONE (v8.11.0, musl-verified, pinned). `wget` similar if wanted.
 4. **ssh / sshd** — remote in/out; dropbear static-musl is the classic small choice.
 5. **tmux / screen** — session persistence across terminal restarts.
@@ -147,6 +149,82 @@ Policy / infra (make the registry safer + broaden what installs):
 
 Provenance: on-device Claude Code (Opus 4.7) gap analysis, 2026-07-09, folded back here so it
 isn't stranded in a chatlog. curl landed the same day (laptop cross-path verified).
+
+## Field-test gaps (2026-07-13) — from a real on-device Claude Code session
+
+Source: full-session transcript captured on the phone 2026-07-13 (Claude Code 2.1.112,
+Fable 5; three repos cloned via isomorphic-git incl. a private one, node smoke test
+written+run on-device). Analyzed desktop-side (PCLA session); ranked by how much each
+gap distorted the session. Evidence lines cite what actually happened, not theory.
+
+**P1 — Preload the SIGSYS→ENOSYS shim into the SHELL (not just claude).**
+Evidence: every external command in the session needed a hand-typed absolute path
+(`/system/bin/toybox ls`, `/data/.../bin/node`); bare commands — even `command -v` —
+kill the shell silently via seccomp during PATH search (musl `faccessat2`/439 on the
+4.14 kernel; the filter SIGSYS-kills where a plain kernel would ENOSYS and musl would
+fall back). Same class as close_range/436 (pipes, closed 2026-07-05); the shim is
+syscall-agnostic by design, so one wiring retires both. Silent shell death repeatedly
+misled BOTH participants (looked like "file wasn't created", "token missing").
+Step 1: check whether the bash the Bash tool spawns is musl-DYNAMIC (→ just add
+LD_PRELOAD to its env in the alias/env wiring, same move as claude) or STATIC
+(→ LD_PRELOAD can't hook it; rebuild bash against bionic, or route the Bash tool
+through mksh which is bionic-native). Acceptance: `command -v node` returns; `echo
+hi | cat` works; bare `node -v` resolves via PATH.
+
+**P2 — `git` on-device: `git`-shaped node CLI now, bionic git later. (Supersedes the
+"static-musl git" registry target above — that route is a TRAP for git specifically:
+static ⇒ LD_PRELOAD can't rescue it when it hits a seccomp-killed syscall, and bash
+proved that class fires in practice (faccessat2/439 during PATH search). fd/curl
+survive as static-musl because their syscall surface happens to be narrow; git's is
+broad + flag-rich and can't be cleared in advance. Bionic-linked = allowlist-aligned
+by construction — the same wall the 2.1.112 pure-JS pivot escaped.)**
+Evidence: every git op in the session was a bespoke ~15-line `node -e` blob
+(isomorphic-git + `globalThis.self` shim) rebuilt from CLAUDE.md prose; the session's
+final `push` failed (token scope) with the smoke test stranded phone-only.
+Route 1 (days): `files/bin/git` as a node .cjs implementing the subset Claude Code
+shells out to — status --porcelain / add / commit / log / pull / push / clone /
+branch / checkout / rev-parse — over isomorphic-git (standard .git format, stays
+compatible with real git later). Unimplemented commands FAIL LOUD ("not implemented
+on phone"), never silently no-op. diff is the known hard part (statusMatrix gives
+file-level; content diff needs a small JS diff lib). Enablers: ~/.gitconfig
+(user.name/email), token from ~/.gh-token.
+Route 2 (the real thing): build git itself against bionic with NDK r27c. Preferred
+variant 2b: build git WITHOUT curl and provide `git-remote-https` as a node script
+speaking git's remote-helper protocol, delegating fetch/push to isomorphic-git —
+full local git semantics (real diff/merge/rebase), zero native TLS deps, transport
+already field-proven. Sequencing: 1 then 2b; everything from 1 carries into 2b.
+Payoff: Claude Code discovers git by shelling out — its whole status/diff/commit/push
+loop lights up with no Claude-side change.
+
+**P3 — Native masked secret input.**
+Evidence: the `! echo TOKEN > .gh-token` path failed three times running (accidental
+sends of suggested text, SwiftKey autocapitalization hazard, silent shell death per
+P1), and the endgame was a live PAT pasted into the chat — the exact leak the path
+exists to prevent (second PAT-in-transcript incident; both revoked). Fix: a native
+"enter secret → write to file" affordance — Android password-type input (no
+autocorrect/autocap/no keyboard learning, never echoed to scrollback), writes 0600.
+Only SmartTerminal can close this; Termux can't.
+
+**P4 — Export the real transcript, not the scrollback.**
+Evidence: the 2026-07-13 export is 336 KB holding ~23 KB of unique content (~15
+redraw copies); the 2026-07-09 curl handoff was redraw-CORRUPTED (forced re-fetch +
+re-hash). Claude Code keeps the authoritative session log as .jsonl under
+~/.claude/projects/ on-device — an "export session" action shipping that (or a dedup
+at capture) makes phone→desktop handoffs clean.
+
+**P5 — Input safety rails.**
+Evidence: operator twice accidentally sent Claude's own suggested text as his message
+("done, token is in .gh-token" while still searching) → both parties hunted a
+nonexistent file. Fix: confirm-step or visible draft state for pasted/multi-line
+input; verify the terminal input field really has suggestions+autocap off.
+
+**P6 — Python via stpkg.**
+Evidence: PCLA cloned fine but `selftest.py` was unrunnable (node-only sandbox); the
+honest smoke test had to be reinvented in node. Static musl-aarch64 Python builds
+exist (python-build-standalone) — BUT note the P2 static-musl caveat: a static
+python is un-shimmable, so verify its musl vintage / faccessat2 behavior on-device
+before committing, or prefer a dynamic-musl build the shim can hook. Unlocks running
+the lab's Python verifier corpora on the phone.
 
 ## Decision log
 
