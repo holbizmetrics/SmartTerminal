@@ -184,8 +184,9 @@ final `push` failed (token scope) with the smoke test stranded phone-only.
 Route 1 (days): `files/bin/git` as a node .cjs implementing the subset Claude Code
 shells out to — status --porcelain / add / commit / log / pull / push / clone /
 branch / checkout / rev-parse — over isomorphic-git (standard .git format, stays
-compatible with real git later). **→ BUILT 2026-07-13: `phone-home/git.cjs`, 37
-selftest checks green laptop-side (see decision log); on-device deploy owed.** Unimplemented commands FAIL LOUD ("not implemented
+compatible with real git later). **→ BUILT + DEPLOYED 2026-07-13: `phone-home/git.cjs`,
+37 selftest checks green laptop-side AND on-device (see decision log). DONE — only the
+full re-clone (needs a token; shallow clone can't push) remains before push-from-phone.** Unimplemented commands FAIL LOUD ("not implemented
 on phone"), never silently no-op. diff is the known hard part (statusMatrix gives
 file-level; content diff needs a small JS diff lib). Enablers: ~/.gitconfig
 (user.name/email), token from ~/.gh-token.
@@ -229,17 +230,33 @@ the lab's Python verifier corpora on the phone.
 
 ## Decision log
 
-- **2026-07-13 (evening, laptop) — P2 Route 1 BUILT + verified: `phone-home/git.cjs`.**
+- **2026-07-13 (evening) — P2 Route 1 BUILT + DEPLOYED + on-device-verified: `phone-home/git.cjs`.**
   Git-shaped node CLI over the field-proven substrate (vendored isomorphic-git 1.38.6 +
   `bus-http.cjs`): status/add/commit/log/clone/pull/push/fetch/branch/checkout/rev-parse/
   remote/diff(--name-only); unimplemented → fail-loud exit 2; push results inspected
-  (rejected push can't print success). Verified by TWO selftests, 37 checks green:
+  (rejected push can't print success). Verified by TWO selftests, 37 checks green laptop-side:
   `git-selftest.cjs` (local plumbing, porcelain cross-checked against real git — caught a
   real `?? '??'`-swallows-null bug that printed every clean file as untracked) and
   `git-selftest-net.cjs` (clone/push/pull against a local `git http-backend`; push verified
-  SERVER-side; non-ff push REJECTED loud with server state proven intact). **Owed:
-  on-device deploy** — `files/bin/git` wrapper (2 lines in git.cjs header) + verify on the
-  phone; then Claude Code's whole git loop lights up with no Claude-side change.
+  SERVER-side; non-ff push REJECTED loud with server state proven intact).
+  **On-device (phone Claude Fable 5, cloned SmartTerminal from SmartTerminal):** pulled stale
+  clone 40a350e→24d62bc anonymously; installed git.cjs+selftest+`files/bin/git` wrapper (0755);
+  `git --version` = `2.phone.1.38.6`, selftest ALL PASS, and `git -C ~/SmartTerminal log
+  --oneline -3` printed 24d62bc through the wrapper (real git.cjs reading the real repo).
+  **DONE.** Only the full re-clone remains (shallow clone can't push — needs the token first).
+  Caveat carried: invoke git by ABSOLUTE path on-device until P1 (bare-command PATH search
+  SIGSYS-kills the shell).
+
+- **2026-07-13 (evening) — P6 seccomp-prober BLOCKED by Anthropic Usage Policy, and DROPPED
+  as unnecessary.** The phone session's request to build a syscall-sweep prober (~450
+  hand-crafted single-syscall ELF binaries) was refused by the AUP filter as "violative cyber
+  content" — the sweep-harness shape pattern-matches to offensive tooling. NOT circumvented.
+  Disposition: **the prober isn't needed.** It would only name WHICH syscall kills static-musl
+  python; the fix doesn't depend on the answer (static-musl is dead on this device regardless →
+  the fix is the bionic / shared-library-loader route, same syscall or not), and the killer is
+  already hypothesized as the `faccessat2`/`close_range` class from P1. If the exact syscall is
+  ever wanted, use a standard debugger (static `strace` tracing python's death), not a bespoke
+  ELF sweep. P6 forward path = bionic python, not diagnosis.
 
 - **2026-07-13 (evening) — second on-device session folded back (transcript
   `C:\Temp\SmartTerminal.txt`, redraw-duplicated again = more P4 evidence):**
