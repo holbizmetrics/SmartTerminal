@@ -184,7 +184,8 @@ final `push` failed (token scope) with the smoke test stranded phone-only.
 Route 1 (days): `files/bin/git` as a node .cjs implementing the subset Claude Code
 shells out to — status --porcelain / add / commit / log / pull / push / clone /
 branch / checkout / rev-parse — over isomorphic-git (standard .git format, stays
-compatible with real git later). Unimplemented commands FAIL LOUD ("not implemented
+compatible with real git later). **→ BUILT 2026-07-13: `phone-home/git.cjs`, 37
+selftest checks green laptop-side (see decision log); on-device deploy owed.** Unimplemented commands FAIL LOUD ("not implemented
 on phone"), never silently no-op. diff is the known hard part (statusMatrix gives
 file-level; content diff needs a small JS diff lib). Enablers: ~/.gitconfig
 (user.name/email), token from ~/.gh-token.
@@ -227,6 +228,38 @@ before committing, or prefer a dynamic-musl build the shim can hook. Unlocks run
 the lab's Python verifier corpora on the phone.
 
 ## Decision log
+
+- **2026-07-13 (evening, laptop) — P2 Route 1 BUILT + verified: `phone-home/git.cjs`.**
+  Git-shaped node CLI over the field-proven substrate (vendored isomorphic-git 1.38.6 +
+  `bus-http.cjs`): status/add/commit/log/clone/pull/push/fetch/branch/checkout/rev-parse/
+  remote/diff(--name-only); unimplemented → fail-loud exit 2; push results inspected
+  (rejected push can't print success). Verified by TWO selftests, 37 checks green:
+  `git-selftest.cjs` (local plumbing, porcelain cross-checked against real git — caught a
+  real `?? '??'`-swallows-null bug that printed every clean file as untracked) and
+  `git-selftest-net.cjs` (clone/push/pull against a local `git http-backend`; push verified
+  SERVER-side; non-ff push REJECTED loud with server state proven intact). **Owed:
+  on-device deploy** — `files/bin/git` wrapper (2 lines in git.cjs header) + verify on the
+  phone; then Claude Code's whole git loop lights up with no Claude-side change.
+
+- **2026-07-13 (evening) — second on-device session folded back (transcript
+  `C:\Temp\SmartTerminal.txt`, redraw-duplicated again = more P4 evidence):**
+  (a) **P6 python is DEAD as static-musl** — CPython 3.13 AND 3.11 (python-build-standalone
+  20260623, aarch64-musl) SIGSYS-die at startup; probing back to 2023 found NO older
+  aarch64-musl vintage to retreat to; logcat unreadable from the sandbox so the killed
+  syscall stays unnamed. Named next steps from the phone session: a ~200-byte-ELF
+  **seccomp prober** sweeping syscall numbers (turns P1/P6 from "mysteriously dies" into a
+  named syscall map), or the bionic/shared-library-loader route. Do NOT retry static-musl
+  python builds.
+  (b) SmartTerminal + PCLA now CLONED on-device (repo was temporarily public; shallow
+  depth-1 — fine read-only, do NOT push from a shallow clone). Phone bus identity
+  phone-claude-45eef3a5, read-only until a rotated PAT lands.
+  (c) **P3 evidence n=3:** the on-device Claude itself asked the operator to paste a fresh
+  PAT *as a chat message* — the exact leak class P3 exists to close. Until P3 ships, the
+  safe channel for tokens is the adb `run-as` file write, never chat.
+  (d) Phone Claude Code stop/PreToolUse hooks error with `spawn /data/data/com.termux/…/sh
+  EACCES` — a Termux-path hook in the GLOBAL claude settings leaking into the SmartTerminal
+  environment; harmless-noisy now, scrub global settings (same class as the desktop
+  "global hook contaminates headless claude -p" lesson).
 
 - **2026-07-09 — stpkg PROVEN on device + registry grows: curl added, jq musl-gap confirmed.**
   (Recorded from a laptop session folding back an on-device chatlog.) `stpkg install fd` →
