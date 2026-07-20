@@ -36,17 +36,27 @@ internal class ExtraKeysBar : HorizontalScrollView
     /// </summary>
     public string ApplyModifiers(string input)
     {
-        var result = input;
-
-        if (_altState > 0 && input.Length == 1)
+        // Predictive keyboards (SwiftKey/Gboard) commit "c " or a word instead of
+        // a single char — with a modifier armed, a trimmed single letter is the key,
+        // otherwise CTR+c silently sends "c " and Ctrl-C never reaches the shell.
+        var key = input;
+        if ((_ctrlState > 0 || _altState > 0) && input.Length > 1)
         {
-            result = "\x1b" + input;
+            var trimmed = input.Trim();
+            if (trimmed.Length == 1) key = trimmed;
+        }
+
+        var result = key;
+
+        if (_altState > 0 && key.Length == 1)
+        {
+            result = "\x1b" + key;
             if (_altState == 1) SetAltState(0);
         }
 
-        if (_ctrlState > 0 && input.Length == 1)
+        if (_ctrlState > 0 && key.Length == 1)
         {
-            var ch = char.ToLower(input[0]);
+            var ch = char.ToLower(key[0]);
             if (ch >= 'a' && ch <= 'z')
             {
                 result = ((char)(ch - 'a' + 1)).ToString();

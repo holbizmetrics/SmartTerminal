@@ -8,6 +8,11 @@
 const https = require('node:https');
 const http = require('node:http');
 
+// Fail loud and fast on unreachable hosts instead of hanging for the OS-level
+// TCP timeout (observed: a typo'd domain blocked git clone for minutes). Only
+// covers the connect phase (DNS + TCP) — a slow-but-live transfer never trips it.
+const CONNECT_TIMEOUT_MS = Number(process.env.GIT_CONNECT_TIMEOUT_MS || 8000);
+
 async function collect(body) {
   if (!body) return undefined;
   const chunks = [];
@@ -31,6 +36,16 @@ async function request({ url, method = 'GET', headers = {}, body }, redirectsLef
       resolve({ url, method, statusCode, statusMessage: res.statusMessage, headers: h, body: res });
     });
     req.on('error', reject);
+    req.on('socket', (socket) => {
+      if (!socket.connecting) return;
+      const timer = setTimeout(() => {
+        req.destroy(new Error(
+          `connect timeout after ${CONNECT_TIMEOUT_MS}ms — host unreachable or misspelled: ${url}`));
+      }, CONNECT_TIMEOUT_MS);
+      if (timer.unref) timer.unref();
+      socket.once('connect', () => clearTimeout(timer));
+      socket.once('close', () => clearTimeout(timer));
+    });
     if (payload) req.write(payload);
     req.end();
   });

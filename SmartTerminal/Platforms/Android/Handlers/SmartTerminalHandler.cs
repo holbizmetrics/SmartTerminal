@@ -435,8 +435,10 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
             switch (type)
             {
                 case "input":
-                    // xterm.js key event (for keys typed directly into xterm, not via our overlay)
-                    _termView?.RaiseInputReceived(data);
+                    // xterm.js key event (for keys typed directly into xterm, not via
+                    // our overlay) — route through OnSmartInput so sticky Ctrl/Alt from
+                    // the extra keys bar apply on this path too.
+                    OnSmartInput(data);
                     break;
 
                 case "resize":
@@ -558,6 +560,39 @@ internal class SmartInputEditText : EditText
         }
         return new SmartInputConnection(this, true, _onInput);
     }
+
+    /// <summary>
+    /// Physical/Bluetooth keyboards (and some IMEs) dispatch key events to the
+    /// view directly, bypassing InputConnection.SendKeyEvent — without this
+    /// override, Ctrl chords from a real keyboard land in the EditText buffer
+    /// and never reach the terminal.
+    /// </summary>
+    public override bool OnKeyDown(Keycode keyCode, KeyEvent? e)
+    {
+        if (SmartInputConnection.TranslateKeyEvent(e, _onInput))
+            return true;
+        return base.OnKeyDown(keyCode, e);
+    }
+
+    /// <summary>
+    /// Regain focus + soft keyboard whenever the app window becomes focused
+    /// (launch, return from another app) — without this the operator must tap
+    /// the terminal once or twice before typing.
+    /// </summary>
+    public override void OnWindowFocusChanged(bool hasWindowFocus)
+    {
+        base.OnWindowFocusChanged(hasWindowFocus);
+        if (hasWindowFocus)
+        {
+            RequestFocus();
+            // Post: IMM ignores ShowSoftInput while the window is still mid-focus-transition.
+            Post(() =>
+            {
+                var imm = (InputMethodManager?)Context?.GetSystemService(Context.InputMethodService);
+                imm?.ShowSoftInput(this, ShowFlags.Implicit);
+            });
+        }
+    }
 }
 
 // ==========================================================
@@ -597,63 +632,87 @@ internal class SmartInputConnection : BaseInputConnection
     /// </summary>
     public override bool SendKeyEvent(KeyEvent? e)
     {
-        if (e?.Action == KeyEventActions.Down)
+        if (TranslateKeyEvent(e, _onInput))
+            return true;
+        return base.SendKeyEvent(e);
+    }
+
+    /// <summary>
+    /// Shared key-event → terminal-bytes translation, used by both the
+    /// InputConnection path (SendKeyEvent) and the view path (OnKeyDown).
+    /// Returns true if the event was consumed.
+    /// </summary>
+    internal static bool TranslateKeyEvent(KeyEvent? e, Action<string> onInput)
+    {
+        if (e?.Action != KeyEventActions.Down)
+            return false;
+
+        switch (e.KeyCode)
         {
-            // Handle special keys
-            switch (e.KeyCode)
-            {
-                case Keycode.Enter:
-                    _onInput("\r");
-                    return true;
+            case Keycode.Enter:
+                onInput("\r");
+                return true;
 
-                case Keycode.Del:
-                    _onInput("\x7f"); // DEL
-                    return true;
+            case Keycode.Del:
+                onInput("\x7f"); // DEL
+                return true;
 
-                case Keycode.Tab:
-                    _onInput("\t");
-                    return true;
+            case Keycode.Tab:
+                onInput("\t");
+                return true;
 
-                case Keycode.Escape:
-                    _onInput("\x1b");
-                    return true;
+            case Keycode.Escape:
+                onInput("\x1b");
+                return true;
 
-                // Arrow keys → ANSI escape sequences
-                case Keycode.DpadUp:
-                    _onInput("\x1b[A");
-                    return true;
+            // Arrow keys → ANSI escape sequences
+            case Keycode.DpadUp:
+                onInput("\x1b[A");
+                return true;
 
-                case Keycode.DpadDown:
-                    _onInput("\x1b[B");
-                    return true;
+            case Keycode.DpadDown:
+                onInput("\x1b[B");
+                return true;
 
-                case Keycode.DpadRight:
-                    _onInput("\x1b[C");
-                    return true;
+            case Keycode.DpadRight:
+                onInput("\x1b[C");
+                return true;
 
-                case Keycode.DpadLeft:
-                    _onInput("\x1b[D");
-                    return true;
+            case Keycode.DpadLeft:
+                onInput("\x1b[D");
+                return true;
 
-                default:
-                    // Regular character from physical keyboard
-                    var ch = (char)e.UnicodeChar;
-                    if (ch != 0)
+            default:
+                // With Ctrl held, GetUnicodeChar() returns 0 on many devices —
+                // derive the letter from the keycode so Ctrl-C still maps to 0x03.
+                if (e.IsCtrlPressed && e.KeyCode >= Keycode.A && e.KeyCode <= Keycode.Z)
+                {
+                    onInput(((char)(e.KeyCode - Keycode.A + 1)).ToString());
+                    return true;
+                }
+
+                // Regular character from physical keyboard
+                var ch = (char)e.UnicodeChar;
+                if (ch != 0)
+                {
+                    // Ctrl+letter → control byte (Ctrl-C = 0x03), for keyboards
+                    // that send a real Ctrl chord
+                    if (e.IsCtrlPressed)
                     {
-                        // Handle Ctrl+key combinations
-                        if (e.IsCtrlPressed && ch >= 'a' && ch <= 'z')
+                        var lower = char.ToLower(ch);
+                        if (lower >= 'a' && lower <= 'z')
                         {
-                            _onInput(((char)(ch - 'a' + 1)).ToString());
+                            onInput(((char)(lower - 'a' + 1)).ToString());
                             return true;
                         }
-                        _onInput(ch.ToString());
-                        return true;
                     }
-                    break;
-            }
+                    onInput(ch.ToString());
+                    return true;
+                }
+                break;
         }
 
-        return base.SendKeyEvent(e);
+        return false;
     }
 
     /// <summary>
