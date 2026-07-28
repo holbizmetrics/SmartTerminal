@@ -249,8 +249,10 @@ the lab's Python verifier corpora on the phone.
   "text duplicated" complaint (P4's redraw-duplication, same root). One toggle → one resize.
   (f) **TerminalReady re-fire guard** — a WebView reload re-ran the banner + StartAsync
   (killed the live shell under a duplicate banner); now re-syncs size only.
-  (g) **Gestures** — pinch-to-zoom font (8–28, persisted in localStorage); long-press
-  context menu (Paste / Copy screen / Copy all / Select text); select-text overlay =
+  (g) **Gestures** — pinch-to-zoom font (8–28, persisted in localStorage); momentum
+  fling scroll (xterm scrolls touch 1:1 with no inertia — the "slow, unintuitive"
+  swipe feel; we add decaying scrollLines() after finger-lift, never mid-drag);
+  long-press context menu (Paste / Copy screen / Copy all / Select text); select-text overlay =
   native Android selection handles over buffer text (xterm canvas has no DOM text —
   this is the letter-level selection path). New bridge msgs: paste/copyall/copyscreen/
   copysel/selectmode.

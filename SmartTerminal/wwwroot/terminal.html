@@ -1094,6 +1094,17 @@
             var LP_DELAY = 500;      // ms until long-press fires
             var LP_MOVE_TOL = 12;    // px of finger drift allowed
 
+            // Momentum fling: xterm.js scrolls touch 1:1 with the finger (its
+            // Viewport sets scrollTop manually — the browser's native fling
+            // never fires), which feels dead and slow. We add inertia OURSELVES
+            // after the finger lifts, so we never fight xterm mid-drag.
+            var flinging = false;
+            var velSamples = [];        // {t, y} — recent single-finger positions
+            var VEL_WINDOW_MS = 120;    // samples older than this don't vote
+            var FLING_MIN_V = 0.25;     // px/ms release speed to start a fling
+            var FLING_STOP_V = 0.05;    // px/ms — decay floor, stop here
+            var FLING_DECAY = 0.94;     // per-16.7ms frame
+
             function touchDist(touches) {
                 var dx = touches[0].clientX - touches[1].clientX;
                 var dy = touches[0].clientY - touches[1].clientY;
@@ -1104,9 +1115,42 @@
                 if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
             }
 
+            function trackVelocity(t, y) {
+                velSamples.push({ t: t, y: y });
+                while (velSamples.length > 6) velSamples.shift();
+            }
+
+            function releaseVelocity(now) {
+                var recent = velSamples.filter(function(s) { return now - s.t <= VEL_WINDOW_MS; });
+                if (recent.length < 2) return 0;
+                var first = recent[0], last = recent[recent.length - 1];
+                var dt = last.t - first.t;
+                return dt > 0 ? (last.y - first.y) / dt : 0;
+            }
+
+            function startFling(vy) {
+                flinging = true;
+                var cellH = Math.max(8, container.clientHeight / term.rows);
+                var acc = 0;
+                var lastT = performance.now();
+                function step(now) {
+                    if (!flinging) return;
+                    var dt = now - lastT; lastT = now;
+                    vy *= Math.pow(FLING_DECAY, dt / 16.7);
+                    // Finger moving up (vy < 0) continues scrolling DOWN (+lines).
+                    acc += (-vy * dt) / cellH;
+                    var lines = acc > 0 ? Math.floor(acc) : Math.ceil(acc);
+                    if (lines !== 0) { term.scrollLines(lines); acc -= lines; }
+                    if (Math.abs(vy) < FLING_STOP_V) { flinging = false; return; }
+                    requestAnimationFrame(step);
+                }
+                requestAnimationFrame(step);
+            }
+
             // Capture phase: see the touches before xterm's own handlers do,
             // and keep two-finger gestures away from xterm entirely.
             container.addEventListener('touchstart', function(e) {
+                flinging = false; // any touch stops a running fling
                 if (e.touches.length === 2) {
                     cancelLongPress();
                     pinching = true;
@@ -1116,6 +1160,7 @@
                 } else if (e.touches.length === 1) {
                     lpStartX = e.touches[0].clientX;
                     lpStartY = e.touches[0].clientY;
+                    velSamples = [{ t: e.timeStamp, y: e.touches[0].clientY }];
                     cancelLongPress();
                     lpTimer = setTimeout(function() {
                         lpTimer = null;
@@ -1137,18 +1182,29 @@
                         showZoomHud(f);
                         scheduleFit(); // debounced → one SIGWINCH per gesture, not per frame
                     }
-                } else if (lpTimer && e.touches.length === 1) {
-                    var dx = e.touches[0].clientX - lpStartX;
-                    var dy = e.touches[0].clientY - lpStartY;
-                    if (dx * dx + dy * dy > LP_MOVE_TOL * LP_MOVE_TOL) {
-                        cancelLongPress(); // it's a scroll, not a long-press
+                } else if (e.touches.length === 1) {
+                    trackVelocity(e.timeStamp, e.touches[0].clientY);
+                    if (lpTimer) {
+                        var dx = e.touches[0].clientX - lpStartX;
+                        var dy = e.touches[0].clientY - lpStartY;
+                        if (dx * dx + dy * dy > LP_MOVE_TOL * LP_MOVE_TOL) {
+                            cancelLongPress(); // it's a scroll, not a long-press
+                        }
                     }
                 }
             }, { capture: true, passive: false });
 
             container.addEventListener('touchend', function(e) {
+                var wasTapOrMenu = lpTimer !== null; // timer alive = tap, not a scroll
                 cancelLongPress();
-                if (e.touches.length < 2) pinching = false;
+                if (pinching) {
+                    if (e.touches.length < 2) pinching = false;
+                    return;
+                }
+                if (e.touches.length === 0 && !wasTapOrMenu) {
+                    var vy = releaseVelocity(e.timeStamp);
+                    if (Math.abs(vy) >= FLING_MIN_V) startFling(vy);
+                }
             }, { capture: true, passive: true });
 
             container.addEventListener('touchcancel', function() {
