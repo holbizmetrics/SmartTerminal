@@ -179,8 +179,20 @@ public class TabbedTerminalPage : ContentPage
                 pty.Resize(rows, cols);
         };
 
+        var shellStarted = false;
         terminal.TerminalReady += async (cols, rows) =>
         {
+            // "ready" fires again if the WebView ever reloads (renderer restart,
+            // handler reconnect). Restarting the shell then would kill a live
+            // session and reprint the banner — duplicate text with a dead claude
+            // underneath. Re-sync the surviving shell's size instead.
+            if (shellStarted)
+            {
+                if (pty.IsRunning) pty.Resize(rows, cols);
+                return;
+            }
+            shellStarted = true;
+
             var shell = FindShell();
             terminal.WriteOutput?.Invoke(
                 $"\x1b[36m{title}\x1b[0m — {shell}\r\n" +
@@ -225,6 +237,10 @@ public class TabbedTerminalPage : ContentPage
         var session = _sessions[index];
         session.TabButton.BackgroundColor = Color.FromArgb("#e94560");
         _terminalContainer.Content = session.Terminal;
+
+        // The freshly attached terminal's input overlay has no focus yet —
+        // without this, typing is dead after every tab switch until a tap.
+        session.Terminal.FocusTerminal?.Invoke();
     }
 
     private static string FindShell()

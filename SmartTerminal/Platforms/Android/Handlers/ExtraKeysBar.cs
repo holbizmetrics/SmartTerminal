@@ -99,23 +99,26 @@ internal class ExtraKeysBar : HorizontalScrollView
         };
         _container.SetGravity(GravityFlags.CenterVertical);
 
-        // Build keys
+        // Build keys \u2014 DAILY keys first so they are visible without scrolling
+        // (~9-10 keys fit on a phone width; the bar scrolls for the rest).
+        // Arrows lead: Claude Code menu navigation + shell history live there,
+        // and they were parked off-screen at positions 11-14 until 2026-07-28.
         AddKey("ESC", "\x1b");
+        AddKey("TAB", "\t");
+        AddRepeatingKey("\u2191", "\x1b[A"); // Up arrow    (hold to repeat)
+        AddRepeatingKey("\u2193", "\x1b[B"); // Down arrow  (hold to repeat)
+        AddRepeatingKey("\u2190", "\x1b[D"); // Left arrow  (hold to repeat)
+        AddRepeatingKey("\u2192", "\x1b[C"); // Right arrow (hold to repeat)
         _ctrlButton = AddModifierKey("CTR");
         _altButton = AddModifierKey("ALT");
-        AddKey("TAB", "\t");
+        AddPasteKey();
+        AddCopyKey();
         AddKey("|", "|");
         AddKey("-", "-");
         AddKey("~", "~");
         AddKey("/", "/");
         AddKey("\\", "\\");
         AddKey("_", "_");
-        AddKey("\u2191", "\x1b[A"); // Up arrow
-        AddKey("\u2193", "\x1b[B"); // Down arrow
-        AddKey("\u2190", "\x1b[D"); // Left arrow
-        AddKey("\u2192", "\x1b[C"); // Right arrow
-        AddPasteKey();
-        AddCopyKey();
         AddScrollKeys();
 
         AddView(_container);
@@ -128,6 +131,69 @@ internal class ExtraKeysBar : HorizontalScrollView
         _container.AddView(btn);
         return btn;
     }
+
+    /// <summary>
+    /// Key that auto-repeats while held (Termux-style): first repeat after
+    /// 400ms, then every 80ms. Tap still sends exactly one key via Click.
+    /// </summary>
+    private AButton AddRepeatingKey(string label, string output)
+    {
+        var btn = CreateKeyButton(label);
+        var handler = new global::Android.OS.Handler(global::Android.OS.Looper.MainLooper!);
+        Java.Lang.IRunnable? repeat = null;
+        var repeating = false;
+
+        repeat = new Java.Lang.Runnable(() =>
+        {
+            if (!repeating) return;
+            _onInput(output);
+            handler.PostDelayed(repeat!, RepeatIntervalMs);
+        });
+
+        btn.Click += (s, e) =>
+        {
+            // Suppress the synthetic click at the end of a hold — the repeats
+            // already sent the key; one more on release would overshoot.
+            if (!_suppressNextClick.Remove(btn))
+                _onInput(output);
+        };
+
+        btn.Touch += (s, e) =>
+        {
+            switch (e.Event?.Action)
+            {
+                case MotionEventActions.Down:
+                    repeating = true;
+                    handler.PostDelayed(new Java.Lang.Runnable(() =>
+                    {
+                        if (repeating)
+                        {
+                            _suppressNextClick.Add(btn);
+                            _onInput(output);               // first held repeat
+                            handler.PostDelayed(repeat!, RepeatIntervalMs);
+                        }
+                    }), RepeatDelayMs);
+                    break;
+                case MotionEventActions.Up:
+                    repeating = false;
+                    break;
+                case MotionEventActions.Cancel:
+                    // No Click follows a Cancel — a stale suppress entry would
+                    // swallow the NEXT tap on this key.
+                    repeating = false;
+                    _suppressNextClick.Remove(btn);
+                    break;
+            }
+            e.Handled = false; // keep normal button behavior (pressed state, Click)
+        };
+
+        _container.AddView(btn);
+        return btn;
+    }
+
+    private const int RepeatDelayMs = 400;
+    private const int RepeatIntervalMs = 80;
+    private readonly HashSet<AButton> _suppressNextClick = new();
 
     private AButton AddModifierKey(string label)
     {

@@ -88,6 +88,47 @@ const REGISTRY = {
     // re-derived. Cross-path check completes when the phone re-installs and agrees.
     sha256: '1b050abd1669f9a2ac29b34eb022cdeafb271dce5a4fb57d8ef8fadff6d7be1f',
   },
+  rg: {
+    url: 'https://github.com/BurntSushi/ripgrep/releases/download/15.2.0/ripgrep-15.2.0-aarch64-unknown-linux-musl.tar.gz',
+    kind: 'targz',
+    bins: ['rg'],
+    // ELF-probed on the laptop 2026-07-28: ELF64 AARCH64, no PT_INTERP (static),
+    // musl target — same proven class as fd. sha256 below matches BurntSushi's
+    // PUBLISHED .sha256 asset exactly AND the corp-proxy-fetched bytes, so the
+    // proxy demonstrably did not rewrite the artifact.
+    sha256: '800b1e7206afe799dfb5a6901f23147cfaabe0e52210538100f61e86e1740915',
+  },
+  micro: {
+    url: 'https://github.com/zyedidia/micro/releases/download/v2.0.15/micro-2.0.15-linux-arm64.tar.gz',
+    kind: 'targz',
+    bins: ['micro'],
+    // The "nano" answer: terminal editor with nano-like keys (Ctrl-S save,
+    // Ctrl-Q quit, arrows, mouse). Real nano has no static-musl aarch64 build;
+    // micro is pure Go — ELF-probed 2026-07-28: ELF64 AARCH64, no PT_INTERP,
+    // no glibc markers. sha256 matches zyedidia's published .sha asset AND the
+    // corp-proxy bytes. CLASS CAVEAT: Go-static is a NEW runtime class on this
+    // device (proven: rust-musl statics; failed: glibc). Probe on install:
+    //   stpkg install micro && micro --version
+    sha256: '5ca127857bf5500be3879f1a70b27556e737a49da04a1be5334de9e8e8781ad9',
+  },
+  busybox: {
+    url: 'https://busybox.net/downloads/binaries/1.31.0-defconfig-multiarch-musl/busybox-armv8l',
+    kind: 'binary',
+    bins: ['busybox'],
+    // EXPERIMENTAL — probe before trusting (the jq-specimen protocol, bitness
+    // edition). busybox.net publishes NO true aarch64 build; "armv8l" is ELF32
+    // 32-bit ARM (laptop ELF probe 2026-07-28: class=ELF32, machine=ARM, static,
+    // no PT_INTERP). Static musl-built, but 32-bit means it runs the COMPAT
+    // syscall table under Android seccomp — untested on-device. Protocol:
+    //   stpkg install busybox && busybox true && busybox uname -m
+    // If it runs: ONE binary provides ~300 applets (awk sed vi less top diff
+    // tar gzip find xargs ...) — the single biggest Termux-parity multiplier;
+    // then add the curated applet names to bins[] (they symlink to this file
+    // and dispatch on argv[0]). If it SIGSYSes: document beside jq and remove.
+    // DELIBERATELY no applet symlinks until proven — 300 dead symlinks would
+    // shadow working /system/bin toybox tools with a crashing binary.
+    sha256: '141adb1b625a6f44c4b114f76b4387b4ea4f7ab802b88eb40e0d2f6adcccb1c3',
+  },
 };
 
 // ---- logging -------------------------------------------------------------
@@ -153,7 +194,9 @@ async function install(name) {
     const dest = path.join(pkgDir, entry.bins[0]);
     fs.writeFileSync(dest, buf);
     fs.chmodSync(dest, 0o755);
-    linkBin(entry.bins[0], dest);
+    // ALL bins link to the one file — a multi-call binary (busybox) dispatches
+    // on argv[0], so extra bins are applet names. Single-bin entries unchanged.
+    for (const b of entry.bins) linkBin(b, dest);
   } else if (entry.kind === 'targz') {
     const tar = zlib.gunzipSync(buf);
     const tarPath = path.join(TMP, `${name}.tar`);

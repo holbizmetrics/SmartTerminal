@@ -225,6 +225,91 @@
         .media-overlay img { max-width: 100%; height: auto; display: block; margin: 0 auto; border-radius: 3px; }
         .media-overlay audio { width: 100%; margin: 0; }
         .mermaid-overlay { /* alias for clarity in DOM inspection */ }
+
+        /* Pinch-zoom HUD */
+        #zoom-hud {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(15, 15, 35, 0.9);
+            color: #53b3cb;
+            font-family: 'CascadiaMono', monospace;
+            font-size: 22px;
+            padding: 10px 18px;
+            border-radius: 8px;
+            border: 1px solid #53b3cb;
+            z-index: 10000;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.25s;
+        }
+
+        /* Long-press context menu */
+        #ctx-menu {
+            position: fixed;
+            z-index: 10001;
+            background: #0f0f23;
+            border: 1px solid #53b3cb;
+            border-radius: 8px;
+            padding: 4px;
+            display: flex;
+            flex-direction: column;
+            min-width: 150px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.6);
+        }
+        .ctx-item {
+            background: transparent;
+            border: none;
+            color: #e0e0e0;
+            font-family: 'CascadiaMono', monospace;
+            font-size: 15px;
+            text-align: left;
+            padding: 10px 14px;
+            border-radius: 5px;
+        }
+        .ctx-item:active { background: #e94560; color: #ffffff; }
+
+        /* Select-text overlay (native selection over buffer text) */
+        #select-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 10002;
+            background: #1a1a2e;
+            display: flex;
+            flex-direction: column;
+        }
+        #select-bar {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 8px;
+            background: #0f0f23;
+            border-bottom: 1px solid #53b3cb;
+        }
+        #select-bar .ctx-item {
+            border: 1px solid #4a4a6a;
+            padding: 8px 12px;
+        }
+        #select-hint {
+            flex: 1;
+            color: #b0b0b0;
+            font-family: 'CascadiaMono', monospace;
+            font-size: 12px;
+        }
+        #select-text {
+            flex: 1;
+            overflow: auto;
+            margin: 0;
+            padding: 8px;
+            color: #e0e0e0;
+            font-family: 'CascadiaMono', monospace;
+            font-size: 13px;
+            white-space: pre-wrap;
+            word-break: break-all;
+            user-select: text;
+            -webkit-user-select: text;
+        }
     </style>
 </head>
 <body>
@@ -246,11 +331,19 @@
         let term = null;
         let fitAddon = null;
 
+        // --- Font size: persisted, pinch-zoomable (8..28) ---
+        var FONT_MIN = 8, FONT_MAX = 28, FONT_DEFAULT = 14;
+
+        function loadFontSize() {
+            var v = parseInt(localStorage.getItem('st-font-size'), 10);
+            return (v >= FONT_MIN && v <= FONT_MAX) ? v : FONT_DEFAULT;
+        }
+
         function initTerminal() {
             term = new Terminal({
                 cursorBlink: true,
                 cursorStyle: 'block',
-                fontSize: 14,
+                fontSize: loadFontSize(),
                 fontFamily: "'CascadiaMono', 'Fira Code', 'Cascadia Code', 'Source Code Pro', monospace",
                 theme: {
                     background: '#1a1a2e',
@@ -321,12 +414,15 @@
                 sendToCSharp('resize', size.cols + ',' + size.rows);
             });
 
-            // Handle window resize
-            window.addEventListener('resize', function() {
-                if (fitAddon) {
-                    fitAddon.fit();
-                }
-            });
+            // Handle window resize — DEBOUNCED. The soft keyboard's show/hide
+            // animation fires a resize per inset frame; each fit() → SIGWINCH →
+            // full-screen TUIs (Claude Code's Ink renderer) redraw a whole frame
+            // into scrollback. One toggle must produce ONE resize, not ten —
+            // this is the main "text gets duplicated" mitigation.
+            window.addEventListener('resize', scheduleFit);
+
+            // Touch gestures: pinch-to-zoom font size + long-press context menu
+            initTouchGestures(container);
 
             // Bell notification — vibrate on \a
             term.onBell(function() {
@@ -371,11 +467,19 @@
 
         /**
          * Fit terminal to container (call after keyboard show/hide).
+         * Debounced — see the window resize listener rationale.
          */
+        var fitTimer = null;
+        function scheduleFit() {
+            if (fitTimer) clearTimeout(fitTimer);
+            fitTimer = setTimeout(function() {
+                fitTimer = null;
+                if (fitAddon) fitAddon.fit();
+            }, 200);
+        }
+
         function termFit() {
-            if (fitAddon) {
-                fitAddon.fit();
-            }
+            scheduleFit();
         }
 
         /**
@@ -399,6 +503,22 @@
             const buf = term.buffer.active;
             const lines = [];
             for (let i = 0; i < buf.length; i++) {
+                const line = buf.getLine(i);
+                lines.push(line ? line.translateToString(true) : "");
+            }
+            while (lines.length && lines[lines.length - 1] === "") lines.pop();
+            return lines.join("\n");
+        }
+
+        /**
+         * Serialize only the visible viewport (for "Copy screen").
+         */
+        function termGetScreen() {
+            if (!term) return "";
+            const buf = term.buffer.active;
+            const start = buf.viewportY;
+            const lines = [];
+            for (let i = start; i < start + term.rows && i < buf.length; i++) {
                 const line = buf.getLine(i);
                 lines.push(line ? line.translateToString(true) : "");
             }
@@ -957,6 +1077,220 @@
             } catch (e) {
                 console.error('termPaste error:', e);
             }
+        }
+
+        // ============================================================
+        // Touch gestures — pinch-to-zoom + long-press context menu
+        // (Termux-style interactions; xterm renders to canvas, so the
+        // browser's native long-press text selection has nothing to grab.)
+        // ============================================================
+
+        function initTouchGestures(container) {
+            var pinchStartDist = 0;
+            var pinchStartFont = 0;
+            var pinching = false;
+            var lpTimer = null;
+            var lpStartX = 0, lpStartY = 0;
+            var LP_DELAY = 500;      // ms until long-press fires
+            var LP_MOVE_TOL = 12;    // px of finger drift allowed
+
+            function touchDist(touches) {
+                var dx = touches[0].clientX - touches[1].clientX;
+                var dy = touches[0].clientY - touches[1].clientY;
+                return Math.sqrt(dx * dx + dy * dy);
+            }
+
+            function cancelLongPress() {
+                if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
+            }
+
+            // Capture phase: see the touches before xterm's own handlers do,
+            // and keep two-finger gestures away from xterm entirely.
+            container.addEventListener('touchstart', function(e) {
+                if (e.touches.length === 2) {
+                    cancelLongPress();
+                    pinching = true;
+                    pinchStartDist = touchDist(e.touches);
+                    pinchStartFont = term.options.fontSize;
+                    e.stopPropagation();
+                } else if (e.touches.length === 1) {
+                    lpStartX = e.touches[0].clientX;
+                    lpStartY = e.touches[0].clientY;
+                    cancelLongPress();
+                    lpTimer = setTimeout(function() {
+                        lpTimer = null;
+                        openContextMenu(lpStartX, lpStartY);
+                    }, LP_DELAY);
+                }
+            }, { capture: true, passive: true });
+
+            container.addEventListener('touchmove', function(e) {
+                if (pinching && e.touches.length === 2) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    var scale = touchDist(e.touches) / pinchStartDist;
+                    var f = Math.round(pinchStartFont * scale);
+                    f = Math.max(FONT_MIN, Math.min(FONT_MAX, f));
+                    if (f !== term.options.fontSize) {
+                        term.options.fontSize = f;
+                        localStorage.setItem('st-font-size', String(f));
+                        showZoomHud(f);
+                        scheduleFit(); // debounced → one SIGWINCH per gesture, not per frame
+                    }
+                } else if (lpTimer && e.touches.length === 1) {
+                    var dx = e.touches[0].clientX - lpStartX;
+                    var dy = e.touches[0].clientY - lpStartY;
+                    if (dx * dx + dy * dy > LP_MOVE_TOL * LP_MOVE_TOL) {
+                        cancelLongPress(); // it's a scroll, not a long-press
+                    }
+                }
+            }, { capture: true, passive: false });
+
+            container.addEventListener('touchend', function(e) {
+                cancelLongPress();
+                if (e.touches.length < 2) pinching = false;
+            }, { capture: true, passive: true });
+
+            container.addEventListener('touchcancel', function() {
+                cancelLongPress();
+                pinching = false;
+            }, { capture: true, passive: true });
+        }
+
+        // --- Zoom HUD: brief "16 px" indicator while pinching ---
+
+        var zoomHudTimer = null;
+        function showZoomHud(fontSize) {
+            var hud = document.getElementById('zoom-hud');
+            if (!hud) {
+                hud = document.createElement('div');
+                hud.id = 'zoom-hud';
+                document.body.appendChild(hud);
+            }
+            hud.textContent = fontSize + ' px';
+            hud.style.opacity = '1';
+            if (zoomHudTimer) clearTimeout(zoomHudTimer);
+            zoomHudTimer = setTimeout(function() { hud.style.opacity = '0'; }, 800);
+        }
+
+        // --- Long-press context menu ---
+
+        function closeContextMenu() {
+            var m = document.getElementById('ctx-menu');
+            if (m) m.remove();
+        }
+
+        function openContextMenu(x, y) {
+            closeContextMenu();
+            var menu = document.createElement('div');
+            menu.id = 'ctx-menu';
+
+            function addItem(label, handler) {
+                var btn = document.createElement('button');
+                btn.className = 'ctx-item';
+                btn.textContent = label;
+                btn.addEventListener('click', function() {
+                    closeContextMenu();
+                    handler();
+                });
+                menu.appendChild(btn);
+            }
+
+            addItem('Paste', function() { sendToCSharp('paste', '1'); });
+            addItem('Copy screen', function() { sendToCSharp('copyscreen', '1'); });
+            addItem('Copy all', function() { sendToCSharp('copyall', '1'); });
+            addItem('Select text', openSelectOverlay);
+            addItem('✕ Close', function() {});
+
+            document.body.appendChild(menu);
+
+            // Position near the touch point, offset so the finger isn't covering
+            // it, clamped to the viewport.
+            var rect = menu.getBoundingClientRect();
+            var px = Math.min(Math.max(8, x + 12), window.innerWidth - rect.width - 8);
+            var py = Math.min(Math.max(8, y - rect.height - 12), window.innerHeight - rect.height - 8);
+            if (py < 8) py = Math.min(y + 24, window.innerHeight - rect.height - 8);
+            menu.style.left = px + 'px';
+            menu.style.top = py + 'px';
+
+            // Swallow the tap-release that opened the menu (150ms guard) so it
+            // can't click a menu item the finger happens to be over.
+            menu.style.pointerEvents = 'none';
+            setTimeout(function() { menu.style.pointerEvents = 'auto'; }, 150);
+
+            // Tap anywhere else closes it.
+            setTimeout(function() {
+                document.addEventListener('touchstart', function once(e) {
+                    if (!menu.contains(e.target)) closeContextMenu();
+                    document.removeEventListener('touchstart', once, true);
+                }, true);
+            }, 0);
+        }
+
+        // --- Select-text overlay: native Android selection over buffer text ---
+        // xterm's canvas has no DOM text, so real letter-level selection happens
+        // here: the buffer rendered as selectable <pre>, with the platform's own
+        // selection handles. While open, C# makes the WebView focusable
+        // ("selectmode" message) so the selection ActionMode behaves.
+
+        var SELECT_OVERLAY_MAX_LINES = 2000;
+
+        function openSelectOverlay() {
+            if (document.getElementById('select-overlay')) return;
+            sendToCSharp('selectmode', '1');
+
+            var overlay = document.createElement('div');
+            overlay.id = 'select-overlay';
+
+            var bar = document.createElement('div');
+            bar.id = 'select-bar';
+
+            var hint = document.createElement('span');
+            hint.id = 'select-hint';
+            hint.textContent = 'Long-press text to select';
+            bar.appendChild(hint);
+
+            function addBarBtn(label, handler) {
+                var btn = document.createElement('button');
+                btn.className = 'ctx-item';
+                btn.textContent = label;
+                btn.addEventListener('click', handler);
+                bar.appendChild(btn);
+            }
+
+            addBarBtn('Copy', function() {
+                var sel = window.getSelection ? String(window.getSelection()) : '';
+                if (sel.length > 0) {
+                    sendToCSharp('copysel', sel);
+                } else {
+                    hint.textContent = 'Nothing selected yet';
+                }
+            });
+            addBarBtn('✕ Done', closeSelectOverlay);
+
+            var pre = document.createElement('pre');
+            pre.id = 'select-text';
+            var text = termGetBuffer();
+            // Cap DOM size: keep the most recent lines (where the action is).
+            var lines = text.split('\n');
+            if (lines.length > SELECT_OVERLAY_MAX_LINES) {
+                lines = lines.slice(lines.length - SELECT_OVERLAY_MAX_LINES);
+            }
+            pre.textContent = lines.join('\n');
+
+            overlay.appendChild(bar);
+            overlay.appendChild(pre);
+            document.body.appendChild(overlay);
+
+            // Open scrolled to the bottom — most recent output first in view.
+            pre.scrollTop = pre.scrollHeight;
+        }
+
+        function closeSelectOverlay() {
+            var overlay = document.getElementById('select-overlay');
+            if (overlay) overlay.remove();
+            sendToCSharp('selectmode', '0');
+            if (term) term.focus();
         }
 
         // --- JS → C# communication ---

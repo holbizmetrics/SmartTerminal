@@ -230,7 +230,43 @@ the lab's Python verifier corpora on the phone.
 
 ## Decision log
 
-- **2026-07-13 (evening) — P2 Route 1 BUILT + DEPLOYED + on-device-verified: `phone-home/git.cjs`.**
+- **2026-07-28 — Daily-annoyance batch: input/focus root-cause + gestures + registry grows (rg, micro, busybox-experimental). Laptop-built GREEN, on-device verification OWED.**
+  Operator-reported dailies, each mapped to a mechanism before fixing:
+  (a) **Single-IME-target fix** — the WebView re-grabbed View focus after every tap
+  (its `OnTouchEvent` runs after our overlay-refocus touch handler), so the keyboard
+  randomly bound to WebView/xterm-textarea instead of `SmartInputEditText` → the
+  "sometimes I can't type / Ctrl-C dead, restart required" wedge. WebView is now
+  non-focusable (re-enabled only while the select-text overlay is open).
+  (b) **Startup focus** — `ready` fires before the Activity window has focus; the old
+  `ShowSoftInput(Forced)` (deprecated) silently no-op'd → tap-every-launch. Now:
+  WindowInsetsController IME show (API 30+) + deferred retry on window-focus-gained.
+  (c) **Tab-switch refocus** (typing was dead after every switch until a tap).
+  (d) **Composing-text flush** — predictive keyboards' composing text was swallowed;
+  Enter mid-prediction lost the word (`ls`<Enter> → bare `\r`). FinishComposingText +
+  raw-Enter/Tab now flush pending composition.
+  (e) **Resize debounce (200ms)** — keyboard show/hide fired a resize per inset frame;
+  each SIGWINCH made Ink (Claude Code) redraw a full frame into scrollback = the
+  "text duplicated" complaint (P4's redraw-duplication, same root). One toggle → one resize.
+  (f) **TerminalReady re-fire guard** — a WebView reload re-ran the banner + StartAsync
+  (killed the live shell under a duplicate banner); now re-syncs size only.
+  (g) **Gestures** — pinch-to-zoom font (8–28, persisted in localStorage); long-press
+  context menu (Paste / Copy screen / Copy all / Select text); select-text overlay =
+  native Android selection handles over buffer text (xterm canvas has no DOM text —
+  this is the letter-level selection path). New bridge msgs: paste/copyall/copyscreen/
+  copysel/selectmode.
+  (h) **ExtraKeysBar** — arrows moved directly after TAB (operator-confirmed order;
+  they sat off-screen at positions 11–14 of the scrolling bar) + hold-to-repeat
+  (400ms delay, 80ms interval).
+  (i) **stpkg registry** — `rg` 15.2.0 (aarch64-musl, ELF-probed, sha256 == BurntSushi's
+  published hash), `micro` 2.0.15 (the "nano" answer; pure-Go static, NEW runtime class —
+  probe on install), `busybox` 1.31.0 EXPERIMENTAL (busybox.net has NO true aarch64;
+  "armv8l" probed ELF32/ARM32 static — compat-syscall-table risk, so NO applet symlinks
+  until `busybox true` proves it on-device). Binary-kind now symlinks ALL bins[] (applet
+  dispatch via argv[0], for busybox-after-proof).
+  **Verification state, honestly:** dotnet build 0 errors; stpkg.js + terminal.html
+  node-syntax-checked; NOTHING on-device yet — deploy (force-stops app) + the checklist
+  in the session handoff are owed. mksh's narrow-width horizontal line-scroll (`<`/`>`
+  edge markers) was diagnosed as NOT a bug — pinch-zoom-out is the mitigation.
   Git-shaped node CLI over the field-proven substrate (vendored isomorphic-git 1.38.6 +
   `bus-http.cjs`): status/add/commit/log/clone/pull/push/fetch/branch/checkout/rev-parse/
   remote/diff(--name-only); unimplemented → fail-loud exit 2; push results inspected

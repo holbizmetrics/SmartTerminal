@@ -97,6 +97,15 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
 
         frame.AddView(_webView);
 
+        // The WebView must never take View focus: it competes with the input
+        // overlay as IME target (WebView.OnTouchEvent re-grabs focus after every
+        // tap), and xterm's hidden textarea + Android WebView IME composition is
+        // unreliable — the "sometimes I can't type" state. Touch (scroll, taps,
+        // rich-overlay clicks) works without focusability. Re-enabled temporarily
+        // while the select-text overlay is open (see "selectmode" message).
+        _webView.Focusable = false;
+        _webView.FocusableInTouchMode = false;
+
         // 2. SmartInputEditText — tiny (1x1), captures keyboard input via InputConnection.
         //    Must NOT be fullscreen — that blocks all touch events to the WebView.
         _inputOverlay = new SmartInputEditText(context, OnSmartInput);
@@ -105,6 +114,7 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
         _inputOverlay.SetTextColor(global::Android.Graphics.Color.Transparent);
         _inputOverlay.SetCursorVisible(false);
         _inputOverlay.Alpha = 0f;
+        _inputOverlay.WindowFocusChanged += OnOverlayWindowFocusChanged;
 
         frame.AddView(_inputOverlay);
 
@@ -113,9 +123,7 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
         {
             if (e.Event?.Action == MotionEventActions.Down && _inputOverlay != null)
             {
-                _inputOverlay.RequestFocus();
-                var imm = (InputMethodManager?)context.GetSystemService(Context.InputMethodService);
-                imm?.ShowSoftInput(_inputOverlay, ShowFlags.Implicit);
+                ShowKeyboard();
             }
             e.Handled = false; // let WebView handle touch too (scroll, select)
         };
@@ -193,6 +201,8 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
         _termView = null;
         _webView?.Destroy();
         _webView = null;
+        if (_inputOverlay != null)
+            _inputOverlay.WindowFocusChanged -= OnOverlayWindowFocusChanged;
         _inputOverlay = null;
         _extraKeysBar = null;
         _htmlLoaded = false;
@@ -230,10 +240,52 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
     {
         MainThread.BeginInvokeOnMainThread(() =>
         {
-            _inputOverlay?.RequestFocus();
-            var imm = (InputMethodManager?)Context?.GetSystemService(Context.InputMethodService);
-            imm?.ShowSoftInput(_inputOverlay, ShowFlags.Forced);
+            if (_inputOverlay == null) return;
+
+            // Cold start: the terminal's "ready" event routinely arrives before
+            // the Activity window has focus (splash transition still running) —
+            // showing then is a silent no-op (the historical tap-every-launch
+            // annoyance). No flag needed: OnOverlayWindowFocusChanged shows on
+            // EVERY focus gain, so the cold-start case is covered by the event.
+            if (_inputOverlay.HasWindowFocus)
+            {
+                ShowKeyboard();
+            }
         });
+    }
+
+    private void OnOverlayWindowFocusChanged(bool hasFocus)
+    {
+        // Every window-focus gain (launch, return from another app) re-arms the
+        // keyboard — merged trigger semantics from the on-device fix (f00c39e).
+        if (hasFocus)
+        {
+            // Post: let the window settle one frame before requesting the IME.
+            _inputOverlay?.Post(ShowKeyboard);
+        }
+    }
+
+    /// <summary>
+    /// Focus the input overlay and show the soft keyboard, reliably.
+    /// ShowSoftInput(Forced) is deprecated and increasingly a no-op; on API 30+
+    /// the WindowInsetsController path is the one that actually works — including
+    /// after the user explicitly dismissed the keyboard (where ShowFlags.Implicit
+    /// is ignored by the system).
+    /// </summary>
+    private void ShowKeyboard()
+    {
+        if (_inputOverlay == null) return;
+        _inputOverlay.RequestFocus();
+
+        if (OperatingSystem.IsAndroidVersionAtLeast(30))
+        {
+            _inputOverlay.WindowInsetsController?.Show(WindowInsets.Type.Ime());
+        }
+        else
+        {
+            var imm = (InputMethodManager?)Context?.GetSystemService(Context.InputMethodService);
+            imm?.ShowSoftInput(_inputOverlay, ShowFlags.Implicit);
+        }
     }
 
     // --- SmartInputEditText → xterm.js ---
@@ -347,21 +399,34 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
                 if (string.IsNullOrEmpty(json) || json == "null") return;
                 string text = System.Text.Json.JsonSerializer.Deserialize<string>(json) ?? "";
                 if (text.Length == 0) return;
-
-                var clipboard = (global::Android.Content.ClipboardManager?)
-                    _context?.GetSystemService(Context.ClipboardService);
-                var clip = global::Android.Content.ClipData.NewPlainText("terminal", text);
-                if (clipboard != null && clip != null)
-                {
-                    clipboard.PrimaryClip = clip;
-                    global::Android.Widget.Toast.MakeText(
-                        _context, $"Copied {text.Length} chars", global::Android.Widget.ToastLength.Short)?.Show();
-                }
+                SetClipboard(_context, text);
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Copy error: {ex.Message}");
             }
+        }
+    }
+
+    /// <summary>Put text on the system clipboard with a length toast.</summary>
+    private static void SetClipboard(Context? context, string text)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(text)) return;
+            var clipboard = (global::Android.Content.ClipboardManager?)
+                context?.GetSystemService(Context.ClipboardService);
+            var clip = global::Android.Content.ClipData.NewPlainText("terminal", text);
+            if (clipboard != null && clip != null)
+            {
+                clipboard.PrimaryClip = clip;
+                global::Android.Widget.Toast.MakeText(
+                    context, $"Copied {text.Length} chars", global::Android.Widget.ToastLength.Short)?.Show();
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"SetClipboard error: {ex.Message}");
         }
     }
 
@@ -477,6 +542,48 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
                         FocusTerminal();
                     }
                     break;
+
+                // --- Long-press context menu actions (JS side: terminal.html) ---
+
+                case "paste":
+                    // Same smart paste as the PST extra key (text or image).
+                    OnPasteRequested();
+                    break;
+
+                case "copyall":
+                    // Whole scrollback → clipboard. Routed through EvaluateJavascript
+                    // (not the console bridge) so multi-MB buffers can't hit console
+                    // message truncation.
+                    _webView?.EvaluateJavascript("termGetBuffer()", new CopyBufferCallback(Context));
+                    break;
+
+                case "copyscreen":
+                    // Visible viewport only → clipboard.
+                    _webView?.EvaluateJavascript("termGetScreen()", new CopyBufferCallback(Context));
+                    break;
+
+                case "copysel":
+                    // Selection text travels in the message itself (selections are small).
+                    SetClipboard(Context, data);
+                    break;
+
+                case "selectmode":
+                    // Select-text overlay open ("1") / closed ("0"). The WebView is
+                    // normally non-focusable (IME-target race fix); native Android
+                    // text selection inside the overlay works best when the WebView
+                    // may take focus, so allow it only while the overlay is open.
+                    if (_webView != null)
+                    {
+                        var on = data == "1";
+                        _webView.Focusable = on;
+                        _webView.FocusableInTouchMode = on;
+                        if (!on)
+                        {
+                            // Overlay closed → hand the IME back to the input overlay.
+                            ShowKeyboard();
+                        }
+                    }
+                    break;
             }
         }
         catch (Exception ex)
@@ -539,6 +646,11 @@ internal class SmartInputEditText : EditText
 {
     private readonly Action<string> _onInput;
 
+    /// <summary>Raised from OnWindowFocusChanged — lets the handler retry a
+    /// deferred keyboard-show once the Activity window actually has focus
+    /// (the cold-start "ready fires too early" case).</summary>
+    public event Action<bool>? WindowFocusChanged;
+
     public SmartInputEditText(Context context, Action<string> onInput)
         : base(context)
     {
@@ -549,6 +661,20 @@ internal class SmartInputEditText : EditText
         SetRawInputType(InputTypes.ClassText | InputTypes.TextFlagAutoCorrect);
         Focusable = true;
         FocusableInTouchMode = true;
+    }
+
+    /// <summary>
+    /// Regain focus + keyboard on every window-focus gain (launch, return from
+    /// another app) — without this the operator must tap the terminal once or
+    /// twice before typing. MERGED 2026-07-28 from two independent fixes of the
+    /// same bug: this trigger (every gain, f00c39e) + the handler's robust show
+    /// path (WindowInsetsController on API 30+, where ShowSoftInput(Implicit)
+    /// can be a no-op). The handler subscribes via the event and does the show.
+    /// </summary>
+    public override void OnWindowFocusChanged(bool hasWindowFocus)
+    {
+        base.OnWindowFocusChanged(hasWindowFocus);
+        WindowFocusChanged?.Invoke(hasWindowFocus);
     }
 
     public override IInputConnection OnCreateInputConnection(EditorInfo? outAttrs)
@@ -573,26 +699,6 @@ internal class SmartInputEditText : EditText
             return true;
         return base.OnKeyDown(keyCode, e);
     }
-
-    /// <summary>
-    /// Regain focus + soft keyboard whenever the app window becomes focused
-    /// (launch, return from another app) — without this the operator must tap
-    /// the terminal once or twice before typing.
-    /// </summary>
-    public override void OnWindowFocusChanged(bool hasWindowFocus)
-    {
-        base.OnWindowFocusChanged(hasWindowFocus);
-        if (hasWindowFocus)
-        {
-            RequestFocus();
-            // Post: IMM ignores ShowSoftInput while the window is still mid-focus-transition.
-            Post(() =>
-            {
-                var imm = (InputMethodManager?)Context?.GetSystemService(Context.InputMethodService);
-                imm?.ShowSoftInput(this, ShowFlags.Implicit);
-            });
-        }
-    }
 }
 
 // ==========================================================
@@ -607,6 +713,12 @@ internal class SmartInputConnection : BaseInputConnection
 {
     private readonly Action<string> _onInput;
 
+    // Latest composing (prediction-preview) text the keyboard has shown but not
+    // committed. Never forwarded while composing — but it MUST be flushed when
+    // composition ends without a commit, or the typed word is silently lost
+    // (the "typed 'ls', hit Enter, shell got only \r" class).
+    private string _composing = "";
+
     public SmartInputConnection(global::Android.Views.View targetView, bool fullEditor, Action<string> onInput)
         : base(targetView, fullEditor)
     {
@@ -619,6 +731,9 @@ internal class SmartInputConnection : BaseInputConnection
     /// </summary>
     public override bool CommitText(Java.Lang.ICharSequence? text, int newCursorPosition)
     {
+        // A commit REPLACES the current composing region — the composing text was
+        // never sent to the terminal, so just drop it and send the committed text.
+        _composing = "";
         var str = text?.ToString();
         if (!string.IsNullOrEmpty(str))
         {
@@ -628,10 +743,39 @@ internal class SmartInputConnection : BaseInputConnection
     }
 
     /// <summary>
+    /// The keyboard ends composition WITHOUT a commit (e.g. user hits Enter or an
+    /// extra key mid-prediction). BaseInputConnection would just discard the
+    /// composing region; for a terminal that means the word evaporates. Flush it.
+    /// </summary>
+    public override bool FinishComposingText()
+    {
+        FlushComposing();
+        return base.FinishComposingText();
+    }
+
+    private void FlushComposing()
+    {
+        if (_composing.Length > 0)
+        {
+            var pending = _composing;
+            _composing = "";
+            _onInput(pending);
+        }
+    }
+
+    /// <summary>
     /// Physical keyboards and some apps send individual key events here.
     /// </summary>
     public override bool SendKeyEvent(KeyEvent? e)
     {
+        // A raw key arriving mid-composition (some keyboards send Enter/Tab
+        // without finishing composition first): flush the pending word so
+        // "ls<Enter>" can never degrade to just "\r".
+        if (e?.Action == KeyEventActions.Down && _composing.Length > 0 &&
+            (e.KeyCode == Keycode.Enter || e.KeyCode == Keycode.Tab))
+        {
+            FlushComposing();
+        }
         if (TranslateKeyEvent(e, _onInput))
             return true;
         return base.SendKeyEvent(e);
@@ -716,12 +860,12 @@ internal class SmartInputConnection : BaseInputConnection
     }
 
     /// <summary>
-    /// Composing text (mid-prediction) — we let it accumulate.
-    /// Only commitText matters for final input.
+    /// Composing text (mid-prediction) — track it, don't forward it yet.
+    /// CommitText replaces it; FinishComposingText / a raw Enter flushes it.
     /// </summary>
     public override bool SetComposingText(Java.Lang.ICharSequence? text, int newCursorPosition)
     {
-        // Don't send composing text to terminal — wait for commitText
+        _composing = text?.ToString() ?? "";
         return true;
     }
 
