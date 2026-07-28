@@ -388,6 +388,12 @@
             term.open(container);
             fitAddon.fit();
 
+            // Keep xterm in its FOCUSED visual state (solid block cursor). The
+            // WebView is deliberately never View-focused (single-IME-target fix),
+            // so without this xterm draws the hollow "blurred" outline cursor
+            // forever even though input flows fine via the C# bridge.
+            term.focus();
+
             // ============================================================
             // Rich Rendering via OSC 1337
             // LaTeX:    ESC ] 1337 ; latex=BASE64 [;mode=inline|block|display] ST

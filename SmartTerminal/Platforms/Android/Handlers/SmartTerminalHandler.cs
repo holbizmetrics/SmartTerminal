@@ -58,6 +58,7 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
     private ExtraKeysBar? _extraKeysBar;
     private SmartTerminalView? _termView;
     private bool _htmlLoaded;
+    private bool _selectMode;
 
 	public static IPropertyMapper<SmartTerminalView, SmartTerminalHandler> Mapper =
 		new PropertyMapper<SmartTerminalView, SmartTerminalHandler>(ViewMapper);
@@ -115,6 +116,21 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
         _inputOverlay.SetCursorVisible(false);
         _inputOverlay.Alpha = 0f;
         _inputOverlay.WindowFocusChanged += OnOverlayWindowFocusChanged;
+
+        // Focus guardian: outside select-text mode, nothing in this app
+        // legitimately holds focus except the overlay (tab buttons are
+        // click-only). If focus drifts anyway (MAUI chrome, late layout),
+        // take it back — "focus gets lost sometimes" becomes "never".
+        _inputOverlay.FocusChange += (s, e) =>
+        {
+            if (!e.HasFocus && !_selectMode)
+            {
+                _inputOverlay?.Post(() =>
+                {
+                    if (!_selectMode) _inputOverlay?.RequestFocus();
+                });
+            }
+        };
 
         frame.AddView(_inputOverlay);
 
@@ -262,6 +278,11 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
         {
             // Post: let the window settle one frame before requesting the IME.
             _inputOverlay?.Post(ShowKeyboard);
+            // Second assert AFTER MAUI's own initial focus assignment: on cold
+            // start MAUI hands focus to page chrome a beat after window focus,
+            // silently unbinding the IME from the overlay (keyboard visible,
+            // keystrokes landing nowhere). Going last wins that race.
+            _inputOverlay?.PostDelayed(ShowKeyboard, 400);
         }
     }
 
@@ -277,15 +298,22 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
         if (_inputOverlay == null) return;
         _inputOverlay.RequestFocus();
 
+        var imm = (InputMethodManager?)Context?.GetSystemService(Context.InputMethodService);
+
         if (OperatingSystem.IsAndroidVersionAtLeast(30))
         {
             _inputOverlay.WindowInsetsController?.Show(WindowInsets.Type.Ime());
         }
         else
         {
-            var imm = (InputMethodManager?)Context?.GetSystemService(Context.InputMethodService);
             imm?.ShowSoftInput(_inputOverlay, ShowFlags.Implicit);
         }
+
+        // Rebind the IME's input connection to the overlay EXPLICITLY. A visible
+        // keyboard is not a bound keyboard: at cold start the IME could show
+        // while still connected to whatever held focus a frame earlier — the
+        // "keyboard is up but typing lands nowhere until I tap" state.
+        imm?.RestartInput(_inputOverlay);
     }
 
     // --- SmartInputEditText → xterm.js ---
@@ -543,52 +571,71 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
                     }
                     break;
 
-                // --- Long-press context menu actions (JS side: terminal.html) ---
-
+                // Long-press context menu + selection (terminal.html) — seam:
+                // HandleMenuAction owns clipboard routing AND the select-mode
+                // focus contract (see method doc).
                 case "paste":
-                    // Same smart paste as the PST extra key (text or image).
-                    OnPasteRequested();
-                    break;
-
                 case "copyall":
-                    // Whole scrollback → clipboard. Routed through EvaluateJavascript
-                    // (not the console bridge) so multi-MB buffers can't hit console
-                    // message truncation.
-                    _webView?.EvaluateJavascript("termGetBuffer()", new CopyBufferCallback(Context));
-                    break;
-
                 case "copyscreen":
-                    // Visible viewport only → clipboard.
-                    _webView?.EvaluateJavascript("termGetScreen()", new CopyBufferCallback(Context));
-                    break;
-
                 case "copysel":
-                    // Selection text travels in the message itself (selections are small).
-                    SetClipboard(Context, data);
-                    break;
-
                 case "selectmode":
-                    // Select-text overlay open ("1") / closed ("0"). The WebView is
-                    // normally non-focusable (IME-target race fix); native Android
-                    // text selection inside the overlay works best when the WebView
-                    // may take focus, so allow it only while the overlay is open.
-                    if (_webView != null)
-                    {
-                        var on = data == "1";
-                        _webView.Focusable = on;
-                        _webView.FocusableInTouchMode = on;
-                        if (!on)
-                        {
-                            // Overlay closed → hand the IME back to the input overlay.
-                            ShowKeyboard();
-                        }
-                    }
+                    HandleMenuAction(type, data);
                     break;
             }
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"HandleTerminalMessage error: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Long-press menu + selection actions from terminal.html.
+    /// Owns two rules: (1) big copies (screen/all) are pulled via
+    /// EvaluateJavascript, never pushed through the console bridge — multi-MB
+    /// buffers would hit console-message truncation; (2) the select-mode focus
+    /// contract — WebView focusability, the focus guardian's stand-down flag,
+    /// and the IME hand-back MUST move together, in this one place.
+    /// </summary>
+    private void HandleMenuAction(string type, string data)
+    {
+        switch (type)
+        {
+            case "paste":
+                // Same smart paste as the PST extra key (text or image).
+                OnPasteRequested();
+                break;
+
+            case "copyall":
+                _webView?.EvaluateJavascript("termGetBuffer()", new CopyBufferCallback(Context));
+                break;
+
+            case "copyscreen":
+                _webView?.EvaluateJavascript("termGetScreen()", new CopyBufferCallback(Context));
+                break;
+
+            case "copysel":
+                // Selection text travels in the message itself (selections are small).
+                SetClipboard(Context, data);
+                break;
+
+            case "selectmode":
+                // Overlay open ("1") / closed ("0"). The WebView is normally
+                // non-focusable (single-IME-target fix); native text selection
+                // works best when it may take focus, so allow it only while open.
+                if (_webView != null)
+                {
+                    var on = data == "1";
+                    _selectMode = on; // guardian stands down while selecting
+                    _webView.Focusable = on;
+                    _webView.FocusableInTouchMode = on;
+                    if (!on)
+                    {
+                        // Overlay closed → hand the IME back to the input overlay.
+                        ShowKeyboard();
+                    }
+                }
+                break;
         }
     }
 
