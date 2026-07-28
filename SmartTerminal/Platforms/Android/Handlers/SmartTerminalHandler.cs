@@ -300,6 +300,11 @@ public class SmartTerminalHandler : ViewHandler<SmartTerminalView, FrameLayout>
 
         var imm = (InputMethodManager?)Context?.GetSystemService(Context.InputMethodService);
 
+        // Empty the overlay's editable before (re)binding so the IME re-syncs to
+        // a blank field — half of the "another app's word bled in" defence; the
+        // other half is SmartInputConnection's stale-restore guard.
+        _inputOverlay.Text = string.Empty;
+
         if (OperatingSystem.IsAndroidVersionAtLeast(30))
         {
             _inputOverlay.WindowInsetsController?.Show(WindowInsets.Type.Ime());
@@ -760,11 +765,19 @@ internal class SmartInputConnection : BaseInputConnection
 {
     private readonly Action<string> _onInput;
 
-    // Latest composing (prediction-preview) text the keyboard has shown but not
-    // committed. Never forwarded while composing — but it MUST be flushed when
-    // composition ends without a commit, or the typed word is silently lost
-    // (the "typed 'ls', hit Enter, shell got only \r" class).
+    // Live composing state. Characters are emitted AS TYPED (delta against the
+    // previous composing region), not held until commit — a terminal must echo
+    // per keystroke, and holding meant you couldn't see what you were typing.
     private string _composing = "";
+
+    // Guard against the IME restoring a composing region from ANOTHER field.
+    // Observed live 2026-07-28: "wireless" typed in Settings reappeared when the
+    // connection was rebound at launch, and the shell received "wirelessls".
+    // A region that arrives fully-formed within a few hundred ms of binding was
+    // not typed here — adopt it as the baseline instead of emitting it.
+    private readonly long _boundAtMs = Java.Lang.JavaSystem.CurrentTimeMillis();
+    private bool _sawComposing;
+    private const int StaleRestoreWindowMs = 600;
 
     public SmartInputConnection(global::Android.Views.View targetView, bool fullEditor, Action<string> onInput)
         : base(targetView, fullEditor)
@@ -778,36 +791,47 @@ internal class SmartInputConnection : BaseInputConnection
     /// </summary>
     public override bool CommitText(Java.Lang.ICharSequence? text, int newCursorPosition)
     {
-        // A commit REPLACES the current composing region — the composing text was
-        // never sent to the terminal, so just drop it and send the committed text.
+        // A commit REPLACES the composing region. Reconcile against what we've
+        // already emitted, then close the region (a committed word is final —
+        // the next keystroke starts a fresh one).
+        EmitDelta(text?.ToString() ?? "");
         _composing = "";
-        var str = text?.ToString();
-        if (!string.IsNullOrEmpty(str))
-        {
-            _onInput(str);
-        }
         return true;
     }
 
     /// <summary>
-    /// The keyboard ends composition WITHOUT a commit (e.g. user hits Enter or an
-    /// extra key mid-prediction). BaseInputConnection would just discard the
-    /// composing region; for a terminal that means the word evaporates. Flush it.
+    /// Composition ends (Enter, an extra key, focus change). Everything typed was
+    /// already emitted keystroke-by-keystroke, so there is nothing to flush —
+    /// just close the region so the next word doesn't diff against a stale one.
     /// </summary>
     public override bool FinishComposingText()
     {
-        FlushComposing();
+        _composing = "";
         return base.FinishComposingText();
     }
 
-    private void FlushComposing()
+    /// <summary>
+    /// Send only what CHANGED between the previous composing region and the new
+    /// one: backspaces for the revised tail (autocorrect rewriting a word), then
+    /// the new characters. This is what makes typing appear live in the terminal
+    /// instead of materializing at Enter.
+    /// </summary>
+    private void EmitDelta(string next)
     {
-        if (_composing.Length > 0)
-        {
-            var pending = _composing;
-            _composing = "";
-            _onInput(pending);
-        }
+        var prev = _composing;
+        _composing = next;
+
+        if (prev == next) return;
+
+        int common = 0;
+        while (common < prev.Length && common < next.Length && prev[common] == next[common])
+            common++;
+
+        for (int i = common; i < prev.Length; i++)
+            _onInput("\x7f");                      // erase what the IME revised away
+
+        if (next.Length > common)
+            _onInput(next.Substring(common));      // ...and type what replaced it
     }
 
     /// <summary>
@@ -816,12 +840,12 @@ internal class SmartInputConnection : BaseInputConnection
     public override bool SendKeyEvent(KeyEvent? e)
     {
         // A raw key arriving mid-composition (some keyboards send Enter/Tab
-        // without finishing composition first): flush the pending word so
-        // "ls<Enter>" can never degrade to just "\r".
+        // without finishing composition first): the word is already echoed, so
+        // just close the region — the next word must not diff against it.
         if (e?.Action == KeyEventActions.Down && _composing.Length > 0 &&
             (e.KeyCode == Keycode.Enter || e.KeyCode == Keycode.Tab))
         {
-            FlushComposing();
+            _composing = "";
         }
         if (TranslateKeyEvent(e, _onInput))
             return true;
@@ -907,19 +931,37 @@ internal class SmartInputConnection : BaseInputConnection
     }
 
     /// <summary>
-    /// Composing text (mid-prediction) — track it, don't forward it yet.
-    /// CommitText replaces it; FinishComposingText / a raw Enter flushes it.
+    /// Composing text (mid-prediction) — emitted live, character by character.
     /// </summary>
     public override bool SetComposingText(Java.Lang.ICharSequence? text, int newCursorPosition)
     {
-        _composing = text?.ToString() ?? "";
+        var s = text?.ToString() ?? "";
+
+        if (!_sawComposing)
+        {
+            _sawComposing = true;
+            // Stale-restore guard (see _boundAtMs): a multi-character region that
+            // appears in the first moments of a fresh connection is the IME
+            // replaying another field's word, not typing. Adopt, don't emit.
+            if (s.Length > 1 &&
+                Java.Lang.JavaSystem.CurrentTimeMillis() - _boundAtMs < StaleRestoreWindowMs)
+            {
+                _composing = s;
+                return true;
+            }
+        }
+
+        EmitDelta(s);
         return true;
     }
 
     public override bool DeleteSurroundingText(int beforeLength, int afterLength)
     {
-        // Backspace from soft keyboard
-        if (beforeLength > 0)
+        // Backspace from soft keyboard. Only when NO composing region is open:
+        // inside a composition the IME signals deletion by sending a shorter
+        // SetComposingText, and EmitDelta already issues the erase — handling
+        // both would delete twice per keypress.
+        if (_composing.Length == 0 && beforeLength > 0)
         {
             for (int i = 0; i < beforeLength; i++)
                 _onInput("\x7f");
