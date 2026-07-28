@@ -779,6 +779,12 @@ internal class SmartInputConnection : BaseInputConnection
     private bool _sawComposing;
     private const int StaleRestoreWindowMs = 600;
 
+    // Composition ended, but _composing still records what was ALREADY echoed.
+    // Samsung's keyboard follows finishComposingText() with commitText(sameWord);
+    // forgetting the echo at finish-time made that commit look like new text and
+    // typed every word twice. Keep the record, mark the region closed.
+    private bool _regionClosed;
+
     public SmartInputConnection(global::Android.Views.View targetView, bool fullEditor, Action<string> onInput)
         : base(targetView, fullEditor)
     {
@@ -791,22 +797,42 @@ internal class SmartInputConnection : BaseInputConnection
     /// </summary>
     public override bool CommitText(Java.Lang.ICharSequence? text, int newCursorPosition)
     {
-        // A commit REPLACES the composing region. Reconcile against what we've
-        // already emitted, then close the region (a committed word is final —
-        // the next keystroke starts a fresh one).
-        EmitDelta(text?.ToString() ?? "");
-        _composing = "";
+        var s = text?.ToString() ?? "";
+
+        if (_regionClosed)
+        {
+            // Re-commit of a word we already echoed live. Append-only: the region
+            // is closed, so the shell may already have ACTED on those bytes and
+            // backspacing them would corrupt real state. Send only what is new.
+            if (s.Length > _composing.Length && s.StartsWith(_composing, StringComparison.Ordinal))
+                _onInput(s.Substring(_composing.Length));
+            else if (_composing.Length == 0 && s.Length > 0)
+                _onInput(s);
+        }
+        else
+        {
+            // Region was open: reconcile against what we already emitted.
+            EmitDelta(s);
+        }
+
+        // The committed text stays on record as "already echoed", and the region
+        // counts as closed. Clearing it here was the carry-over bug: the IME
+        // re-opens the next word carrying the committed one ("ls" -> "lsm"), and
+        // with an empty record that reads as brand-new text ("lsmoc").
+        _composing = s;
+        _regionClosed = true;
         return true;
     }
 
     /// <summary>
     /// Composition ends (Enter, an extra key, focus change). Everything typed was
-    /// already emitted keystroke-by-keystroke, so there is nothing to flush —
-    /// just close the region so the next word doesn't diff against a stale one.
+    /// already echoed keystroke-by-keystroke, so nothing is flushed here — but the
+    /// record of WHAT was echoed is kept, so a following commit of the same word
+    /// can be recognised as a duplicate instead of typed again.
     /// </summary>
     public override bool FinishComposingText()
     {
-        _composing = "";
+        _regionClosed = true;
         return base.FinishComposingText();
     }
 
@@ -841,11 +867,12 @@ internal class SmartInputConnection : BaseInputConnection
     {
         // A raw key arriving mid-composition (some keyboards send Enter/Tab
         // without finishing composition first): the word is already echoed, so
-        // just close the region — the next word must not diff against it.
+        // CLOSE the region but keep the record — a commit of that same word
+        // often follows, and forgetting here is what typed every word twice.
         if (e?.Action == KeyEventActions.Down && _composing.Length > 0 &&
             (e.KeyCode == Keycode.Enter || e.KeyCode == Keycode.Tab))
         {
-            _composing = "";
+            _regionClosed = true;
         }
         if (TranslateKeyEvent(e, _onInput))
             return true;
@@ -936,6 +963,20 @@ internal class SmartInputConnection : BaseInputConnection
     public override bool SetComposingText(Java.Lang.ICharSequence? text, int newCursorPosition)
     {
         var s = text?.ToString() ?? "";
+
+        if (_regionClosed)
+        {
+            _regionClosed = false;
+            // The IME keeps its OWN model of the field (ours is deliberately
+            // empty), so when a new word starts it may re-open the region with
+            // the PREVIOUS word still in it: after "ls"+Enter, typing "moc"
+            // arrives as "lsm" -> "lsmo" -> "lsmoc" and the shell saw "lsmoc".
+            // If the region still carries text we already echoed, keep it as the
+            // baseline and emit only the tail; otherwise it is a genuinely new
+            // word and the record starts clean.
+            if (_composing.Length == 0 || !s.StartsWith(_composing, StringComparison.Ordinal))
+                _composing = "";
+        }
 
         if (!_sawComposing)
         {
