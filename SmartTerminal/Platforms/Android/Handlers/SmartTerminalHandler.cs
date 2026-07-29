@@ -770,14 +770,14 @@ internal class SmartInputConnection : BaseInputConnection
     // per keystroke, and holding meant you couldn't see what you were typing.
     private string _composing = "";
 
-    // Guard against the IME restoring a composing region from ANOTHER field.
-    // Observed live 2026-07-28: "wireless" typed in Settings reappeared when the
-    // connection was rebound at launch, and the shell received "wirelessls".
-    // A region that arrives fully-formed within a few hundred ms of binding was
-    // not typed here — adopt it as the baseline instead of emitting it.
-    private readonly long _boundAtMs = Java.Lang.JavaSystem.CurrentTimeMillis();
-    private bool _sawComposing;
-    private const int StaleRestoreWindowMs = 600;
+    // How many leading characters of _composing were ADOPTED rather than sent.
+    // The IME restores composing regions we never typed here — from another app
+    // ("wireless" from the Settings search) or from an earlier word in this one
+    // ("lsmoc"). Typing grows a word ONE character at a time from empty, so a
+    // multi-character region appearing where our record is empty was not typed:
+    // adopt it as baseline. (A timing window was tried first and failed — the
+    // restore can arrive minutes after binding, when typing resumes.)
+    private int _adoptedLen;
 
     // Composition ended, but _composing still records what was ALREADY echoed.
     // Samsung's keyboard follows finishComposingText() with commitText(sameWord);
@@ -809,6 +809,14 @@ internal class SmartInputConnection : BaseInputConnection
             else if (_composing.Length == 0 && s.Length > 0)
                 _onInput(s);
         }
+        else if (_adoptedLen > 0 && _adoptedLen == _composing.Length &&
+                 s.StartsWith(_composing, StringComparison.Ordinal))
+        {
+            // The whole region was adopted and NOTHING was typed on top of it,
+            // yet the IME is finalising it — so it was real input after all
+            // (swipe/gesture typing delivers a word in one piece). Release it.
+            _onInput(s);
+        }
         else
         {
             // Region was open: reconcile against what we already emitted.
@@ -820,6 +828,7 @@ internal class SmartInputConnection : BaseInputConnection
         // re-opens the next word carrying the committed one ("ls" -> "lsm"), and
         // with an empty record that reads as brand-new text ("lsmoc").
         _composing = s;
+        _adoptedLen = 0;
         _regionClosed = true;
         return true;
     }
@@ -853,11 +862,16 @@ internal class SmartInputConnection : BaseInputConnection
         while (common < prev.Length && common < next.Length && prev[common] == next[common])
             common++;
 
-        for (int i = common; i < prev.Length; i++)
+        // Never backspace over ADOPTED characters — they were never transmitted,
+        // so an erase there would eat real terminal content instead.
+        int eraseFrom = Math.Max(common, _adoptedLen);
+        for (int i = eraseFrom; i < prev.Length; i++)
             _onInput("\x7f");                      // erase what the IME revised away
 
         if (next.Length > common)
             _onInput(next.Substring(common));      // ...and type what replaced it
+
+        _adoptedLen = Math.Min(_adoptedLen, common);
     }
 
     /// <summary>
@@ -975,21 +989,20 @@ internal class SmartInputConnection : BaseInputConnection
             // baseline and emit only the tail; otherwise it is a genuinely new
             // word and the record starts clean.
             if (_composing.Length == 0 || !s.StartsWith(_composing, StringComparison.Ordinal))
+            {
                 _composing = "";
+                _adoptedLen = 0;
+            }
         }
 
-        if (!_sawComposing)
+        // Nothing on record + a whole word arriving at once = not typed here
+        // (see _adoptedLen). Adopt it silently; if it turns out to be real input
+        // (swipe/gesture typing sends the word whole), CommitText releases it.
+        if (_composing.Length == 0 && s.Length > 1)
         {
-            _sawComposing = true;
-            // Stale-restore guard (see _boundAtMs): a multi-character region that
-            // appears in the first moments of a fresh connection is the IME
-            // replaying another field's word, not typing. Adopt, don't emit.
-            if (s.Length > 1 &&
-                Java.Lang.JavaSystem.CurrentTimeMillis() - _boundAtMs < StaleRestoreWindowMs)
-            {
-                _composing = s;
-                return true;
-            }
+            _composing = s;
+            _adoptedLen = s.Length;
+            return true;
         }
 
         EmitDelta(s);
