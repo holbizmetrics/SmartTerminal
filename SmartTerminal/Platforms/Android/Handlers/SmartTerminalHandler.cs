@@ -43,9 +43,34 @@ internal sealed class TerminalFrameLayout : FrameLayout
         var h = bottom - top;
         if (w > 0 && h > 0)
         {
-            MeasureChildren(
-                MeasureSpec.MakeMeasureSpec(w, MeasureSpecMode.Exactly),
-                MeasureSpec.MakeMeasureSpec(h, MeasureSpecMode.Exactly));
+            // Force-measure children to the real frame size — without this the
+            // WebView collapses to 0x0 and the terminal is a gray screen.
+            //
+            // MARGIN-AWARE ON PURPOSE: ViewGroup.MeasureChildren() ignores
+            // margins, so the earlier margin-blind version silently overrode the
+            // WebView's BottomMargin (= the extra-keys bar height) with the FULL
+            // frame height. The WebView then reported the full height to
+            // xterm.js, FitAddon derived ~2-3 rows too many, the PTY was told
+            // that row count via TIOCSWINSZ — and those last rows rendered
+            // underneath the opaque keys bar. Every full-screen TUI lost its
+            // bottom lines there: micro's status bar, and the bottom of Claude
+            // Code's Ink frame. The 0x0 fix and the keys-bar margin were added
+            // at different times for different reasons; this is where they
+            // collided.
+            for (int i = 0; i < ChildCount; i++)
+            {
+                var child = GetChildAt(i);
+                if (child is null || child.Visibility == ViewStates.Gone) continue;
+
+                var mlp = child.LayoutParameters as ViewGroup.MarginLayoutParams;
+                var horizontalMargin = mlp is null ? 0 : mlp.LeftMargin + mlp.RightMargin;
+                var verticalMargin = mlp is null ? 0 : mlp.TopMargin + mlp.BottomMargin;
+
+                MeasureChild(
+                    child,
+                    MeasureSpec.MakeMeasureSpec(Math.Max(0, w - horizontalMargin), MeasureSpecMode.Exactly),
+                    MeasureSpec.MakeMeasureSpec(Math.Max(0, h - verticalMargin), MeasureSpecMode.Exactly));
+            }
         }
         base.OnLayout(changed, left, top, right, bottom);
     }
