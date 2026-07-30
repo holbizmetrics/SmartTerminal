@@ -228,7 +228,75 @@ python is un-shimmable, so verify its musl vintage / faccessat2 behavior on-devi
 before committing, or prefer a dynamic-musl build the shim can hook. Unlocks running
 the lab's Python verifier corpora on the phone.
 
+## Sweep gaps (2026-07-29) — from a 48-persona stakeholder sweep, not from a device session
+
+Source: PCLA persona sweep run #7, `.prometheus/findings/2026-07-29-smartterminal-persona-sweep/`
+(PREREG frozen before any persona existed; 4 principals survived a 35-row frozen bar). Numbered
+S-series so the P-series above keeps its numbering. **These are gaps, not bugs** — the stated scope
+(one operator's own phone, side-loaded, single user) is respected, and the sweep's own verdict was
+that the "who is the real customer" question returns *empty* here, which is why MDM / Play-Store /
+give-it-to-a-friend demands are refused-on-purpose rather than gaps.
+
+**S1 — You cannot read the agent's question while you type the answer.**
+The dominant interaction with a coding agent is *it asks, you answer*, and the IME occupies ~half
+the screen at exactly that moment. Not the same as the viewport row-count bug (fixed 2026-07-30
+below): even with a perfect row count, the question has scrolled out of the visible band while you
+answer. Candidate fix: pin/echo the pending prompt above the input line.
+
+**S2 — Nothing can reach you when the agent needs you.**
+`grep -rIl "ForegroundService\|NotificationManager\|StartForeground"` over the tree, 2026-07-29:
+every hit is in `ClaudeCodeLauncher` or in generated build artifacts. **SmartTerminal has no
+foreground service and no notification path.** So an agent that asks a question while the screen
+is off cannot say so, and on return nothing distinguishes "finished" from "was killed". Distinct
+from session *persistence* (tmux/reattach) — this is the attention channel, not survival.
+
+**S3 — The agent owns the only window into its own workspace.**
+Under `targetSdk 28` the workspace is app-private storage no Android file manager can reach, and
+the only inspector is the terminal the agent is driving. When it does something wrong, the
+instrument under suspicion is the sole instrument. Candidate fix: a read-only file/log surface in
+the app that does not route through the PTY.
+
+**S4 — Phone-authored commits carry no marker to whoever receives them.**
+`git.cjs` fails loud at the *operator* (good), but its commits land in shared history looking like
+desktop-git while having no real merge, no real rebase, and file-level-only diff. `git --version`
+answers `2.phone.1.38.6` to whoever runs it on the phone; nothing answers it to whoever receives
+the commit. Candidate fix: a commit trailer naming the tool.
+
+**S5 — `stpkg`'s sha256 pin is optional in code while the docs state it as a rule.**
+README and the doctrine paragraph above both describe the mechanism as "https download → **sha256
+pin**" unconditionally. `phone-home/stpkg.js` says otherwise in its own comments — *"sha256:
+optional; when present it is enforced"* — and the live `jq` registry entry has **no `sha256`
+field**. Nothing is installed unverified in practice today (`jq` is the deliberately-kept
+glibc specimen), but the mechanism permits it. Either enforce the pin unconditionally or soften
+the docs; a doc that claims a guarantee the code makes optional is the failure mode.
+*(Found while grounding the sweep, not by a persona — recorded here because it belongs to this
+repo, and deliberately excluded from the sweep's own score.)*
+
+**S6 — `CreatePlatformView` is 91 lines doing four things** (WebView + input overlay + keys bar +
+wiring). Flagged by PCLA's structure-drift instrument 2026-07-29. Not urgent; take one slice when
+next editing that method, never as a standalone rewrite.
+
 ## Decision log
+
+- **2026-07-30 — The terminal was lying to the PTY about how many rows it had. Root-caused
+  laptop-side; on-device UNVERIFIED.**
+  `micro`'s invisible status line was not a micro problem. `TerminalFrameLayout.OnLayout`
+  force-measures children to the real frame size — that is the fix that stopped the WebView
+  collapsing to 0×0 (gray screen, 2026-05-23 above). It did so via `ViewGroup.MeasureChildren()`,
+  which **ignores margins**, and therefore overrode the WebView's `BottomMargin = extraKeysHeight`
+  (42 dp) with the FULL frame height. Chain: WebView reports full height → xterm.js FitAddon
+  derives ~2–3 rows too many → `term.onResize` → C# → `TIOCSWINSZ` → the shell and every
+  full-screen TUI believe they own rows that sit physically underneath the opaque extra-keys bar.
+  `micro` draws its status bar on the last row, so it was never visible; the bottom of Claude
+  Code's Ink frame had the same fate.
+  **Neither original fix was wrong** — the 0×0 measure fix and the keys-bar margin were added at
+  different times for different reasons, and this is where they collided. Fix: measure each child
+  with its own margins subtracted, preserving the force-EXACTLY behaviour the 0×0 fix needs
+  (`5bde5b2`).
+  **Verification state, honestly:** `dotnet build` 0 errors (arm64). **Nothing on-device** — the
+  phone never enumerated over adb this session. Decidable check on deploy, and it can come back
+  negative: `printf '\033[999;1H'; echo LASTROW` — visible at the bottom edge = fixed, invisible =
+  still broken. Independent second check: `stty size` should report 2–3 FEWER rows than before.
 
 - **2026-07-28 — Daily-annoyance batch: input/focus root-cause + gestures + registry grows (rg, micro, busybox-experimental). Laptop-built GREEN, on-device verification OWED.**
   Operator-reported dailies, each mapped to a mechanism before fixing:
