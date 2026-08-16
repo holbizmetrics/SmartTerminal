@@ -166,23 +166,10 @@ public class TerminalPage : ContentPage
         return "/system/bin/sh";
     }
 
-    protected override void OnDisappearing()
-    {
-        base.OnDisappearing();
-
-        // Unsubscribe to prevent handler accumulation on the singleton PtyService
-        _terminal.InputReceived -= OnInputReceived;
-        _terminal.SizeChanged -= OnTerminalSizeChanged;
-        _terminal.TerminalReady -= OnTerminalReady;
-        _pty.OutputReceived -= OnPtyOutput;
-        _pty.ProcessExited -= OnProcessExited;
-
-        _pty.Stop();
-
-        // Stop foreground service when terminal page disappears
-#if ANDROID
-        SmartTerminal.Platforms.Android.Services.TerminalForegroundService.Stop(
-            Platform.CurrentActivity!);
-#endif
-    }
+    // NO OnDisappearing teardown, deliberately. MAUI raises OnDisappearing when the app is
+    // BACKGROUNDED, so stopping the PTY and the foreground service here killed the session on
+    // every app switch -- the app terminating itself, wearing the costume of an Android kill.
+    // The handler unsubscribes were wired in the CONSTRUCTOR and nothing re-subscribed them, so
+    // a returning page was also permanently deaf to its own shell. The session outlives the
+    // page by design; it ends when the tab is closed (factory Dispose) or via the notification.
 }
