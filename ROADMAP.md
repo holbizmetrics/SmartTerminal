@@ -244,11 +244,26 @@ below): even with a perfect row count, the question has scrolled out of the visi
 answer. Candidate fix: pin/echo the pending prompt above the input line.
 
 **S2 — Nothing can reach you when the agent needs you.**
-`grep -rIl "ForegroundService\|NotificationManager\|StartForeground"` over the tree, 2026-07-29:
-every hit is in `ClaudeCodeLauncher` or in generated build artifacts. **SmartTerminal has no
-foreground service and no notification path.** So an agent that asks a question while the screen
-is off cannot say so, and on return nothing distinguishes "finished" from "was killed". Distinct
-from session *persistence* (tmux/reattach) — this is the attention channel, not survival.
+**GROUNDING RETRACTED 2026-08-16 — the observation was right, the stated cause was false.**
+The original line read: "*every hit is in `ClaudeCodeLauncher` or in generated build artifacts.
+SmartTerminal has no foreground service and no notification path.*" That is wrong, and it was
+wrong when written: `SmartTerminal/Platforms/Android/Services/TerminalForegroundService.cs` was
+added **2026-07-09**, twenty days before the 2026-07-29 sweep, is 74 lines, posts a notification
+via `NotificationManager`, and calls `StartForeground` — so the quoted grep, run as written over
+this tree, could not have returned the quoted result. A published measurement that the command
+could not have produced.
+
+**Why the symptom was nevertheless real.** `TerminalPage.OnDisappearing()` called
+`TerminalForegroundService.Stop()`, and MAUI raises `OnDisappearing` on *backgrounding* — so the
+service and its notification were destroyed the moment you left the app, which is precisely when
+an attention channel has to exist. From the phone the two are indistinguishable: "no notification
+path" and "the notification path deletes itself on app switch" look identical from the outside.
+Fixed in `96f6741`; UNVERIFIED ON DEVICE.
+
+**The residual gap, restated honestly:** a persistent *"session running"* notification is not an
+attention channel. Nothing yet distinguishes "the agent is waiting on you" from "the agent is
+working", and on return nothing distinguishes "finished" from "was killed". Distinct from session
+*persistence* (tmux/reattach) — this is the attention channel, not survival.
 
 **S3 — The agent owns the only window into its own workspace.**
 Under `targetSdk 28` the workspace is app-private storage no Android file manager can reach, and
